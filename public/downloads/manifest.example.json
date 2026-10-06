@@ -1,0 +1,87 @@
+{
+  "format": "yezi.asset",
+  "version": 1,
+  "assetId": "demo-modular-3",
+  "revision": 1,
+  "title": "3 层模块 · 资产示例",
+  "subtitle": "MODULAR STUDY",
+  "category": "收藏",
+  "model": "model.glb",
+  "poster": "poster.png",
+  "description": "用于验证通用导入的几何模块，不代表真实商品。",
+  "camera": {
+    "direction": [
+      4,
+      3,
+      7
+    ]
+  },
+  "animation": {
+    "durationMs": 1100
+  },
+  "parts": [
+    {
+      "id": "part-0",
+      "number": "01",
+      "name": "模块 1",
+      "nameEn": "Module 1",
+      "description": "这是第 1 个独立模块，可单独旋转查看。",
+      "node": 0,
+      "explode": {
+        "translation": [
+          -0.18,
+          -0.7,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "id": "part-1",
+      "number": "02",
+      "name": "模块 2",
+      "nameEn": "Module 2",
+      "description": "这是第 2 个独立模块，可单独旋转查看。",
+      "node": 1,
+      "explode": {
+        "translation": [
+          0.0,
+          0.0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "id": "part-2",
+      "number": "03",
+      "name": "模块 3",
+      "nameEn": "Module 3",
+      "description": "这是第 3 个独立模块，可单独旋转查看。",
+      "node": 2,
+      "explode": {
+        "translation": [
+          0.18,
+          0.7,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ]
+      }
+    }
+  ]
+}

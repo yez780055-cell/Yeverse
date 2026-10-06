@@ -1,0 +1,36 @@
+import 'fake-indexeddb/auto';
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {unzipSync,zipSync,strFromU8,strToU8} from 'fflate';
+import {parseManifest} from '../.sites-runtime/asset-tests/lib/assets/manifest.js';
+import {unpackAsset,PackageChoices} from '../.sites-runtime/asset-tests/lib/assets/package.js';
+import {validateGlb} from '../.sites-runtime/asset-tests/lib/assets/validateGlb.js';
+import {loadAsset,pose,disposeObject} from '../.sites-runtime/asset-tests/lib/assets/runtime.js';
+import {readCollection,saveCollection,readAsset,seed} from '../.sites-runtime/asset-tests/lib/collection/data.js';
+import {buildBackup,parseBackup} from '../.sites-runtime/asset-tests/lib/assets/backup.js';
+globalThis.FileReader=class{async readAsDataURL(blob){try{this.result=`data:${blob.type};base64,${Buffer.from(await blob.arrayBuffer()).toString('base64')}`;this.onload();}catch(e){this.error=e;this.onerror();}}};
+const bytes=readFileSync('public/downloads/yeverse-demo-kit.zip');const files=unzipSync(bytes);const manifest=parseManifest(JSON.parse(strFromU8(files['manifest.json'])));
+function alteredGlb(change){const b=files['model.glb'];const v=new DataView(b.buffer,b.byteOffset);const length=v.getUint32(12,true);const json=JSON.parse(strFromU8(b.subarray(20,20+length)));change(json);let text=JSON.stringify(json);while(text.length%4)text+=' ';const metadata=strToU8(text),bin=b.subarray(20+length);const out=new Uint8Array(20+metadata.length+bin.length);const dv=new DataView(out.buffer);[0x46546c67,2,out.length,metadata.length,0x4e4f534a].forEach((n,i)=>dv.setUint32(i*4,n,true));out.set(metadata,20);out.set(bin,20+metadata.length);return out;}
+test('two unrelated package definitions parse without website code changes',async()=>{for(const [name,count] of [['yeverse-demo-kit.zip',3],['yeverse-demo-four-parts.zip',4]]){const parsed=await unpackAsset(new Blob([readFileSync('public/downloads/'+name)]));assert.equal(parsed.asset.manifest.parts.length,count);assert.equal(parsed.stats.triangles,12*count);}});
+test('manifest rejects future versions, duplicate ids and invalid rotations',()=>{assert.throws(()=>parseManifest({...manifest,version:2}));assert.throws(()=>parseManifest({...manifest,parts:[manifest.parts[0],manifest.parts[0]]}));assert.throws(()=>parseManifest({...manifest,parts:[{...manifest.parts[0],explode:{translation:[0,0,0],rotation:[0,0,0,0]}}]}));});
+test('ZIP rejects missing files and unexpected or traversal paths',async()=>{await assert.rejects(unpackAsset(new Blob([zipSync({'manifest.json':files['manifest.json']})])));await assert.rejects(unpackAsset(new Blob([zipSync({...files,'../bad.js':strToU8('bad')})])));});
+test('ZIP rejects inflated resource over limit',async()=>{await assert.rejects(unpackAsset(new Blob([zipSync({...files,'poster.png':new Uint8Array(21*1024*1024)})])));});
+test('GLB rejects remote assets, cycles, missing part nodes, extensions and bad positions',()=>{for(const mutate of [g=>g.buffers[0].uri='https://example.com/x.bin',g=>g.nodes[0].children=[0],g=>g.scenes[0].nodes=[0],g=>g.nodes[0].extensions={FAKE_remote:{}},g=>g.accessors[0].count=999999])assert.throws(()=>validateGlb(alteredGlb(mutate),manifest));const b=files['model.glb'].slice();const v=new DataView(b.buffer);v.setFloat32(28+v.getUint32(12,true),NaN,true);assert.throws(()=>validateGlb(b,manifest));});
+test('GLTFLoader maps real nodes and exploded poses return exactly to assembly',async()=>{const rt=await loadAsset(new Blob([files['model.glb']]),manifest);assert.equal(rt.parts.length,3);const start=rt.parts.map(p=>p.object.position.toArray());pose(rt.parts,1);assert.notDeepEqual(rt.parts.map(p=>p.object.position.toArray()),start);pose(rt.parts,0);assert.deepEqual(rt.parts.map(p=>p.object.position.toArray()),start);assert.ok(rt.exploded.getSize({subVectors(a,b){this.y=a.y-b.y;return this;}}).y>0);disposeObject(rt.root);});
+test('database upgrade, atomic save, backup restore and garbage collection',async()=>{
+ await new Promise((resolve,reject)=>{const r=indexedDB.open('yezi-collection-v1',1);r.onupgradeneeded=()=>r.result.createObjectStore('vault').put(seed,'items');r.onsuccess=()=>{r.result.close();resolve();};r.onerror=()=>reject(r.error);});
+ assert.equal((await readCollection()).length,6);
+ const parsed=await unpackAsset(new Blob([bytes]));const item={...seed[0],id:'new-package',image:parsed.poster,model:{kind:'package',assetKey:parsed.asset.key,manifest:parsed.asset.manifest}};
+ await saveCollection([...seed,item],[parsed.asset]);assert.equal((await readAsset(parsed.asset.key)).size,files['model.glb'].length);
+ const backup=await buildBackup(await readCollection());const restored=await parseBackup(JSON.parse(JSON.stringify(backup)));assert.equal(restored.items.length,7);assert.equal(restored.assets.length,1);assert.notEqual(restored.items[6].model.assetKey,parsed.asset.key);
+ await assert.rejects(saveCollection([{...item,model:{...item.model,assetKey:'missing'}}]));assert.equal((await readCollection()).length,7);assert.ok(await readAsset(parsed.asset.key));
+ await saveCollection(restored.items,restored.assets);await assert.rejects(readAsset(parsed.asset.key));assert.ok(await readAsset(restored.items[6].model.assetKey));
+ await assert.rejects(parseBackup({...backup,assets:{}}));assert.equal((await readCollection()).length,7);
+ await saveCollection(seed);await assert.rejects(readAsset(restored.items[6].model.assetKey));
+});
+
+test('nested folder and unrelated documents do not prevent import',async()=>{const nested=Object.fromEntries(Object.entries(files).map(([k,v])=>['my-object/'+k,v]));nested['README.txt']=strToU8('Instructions');const r=await unpackAsset(new Blob([zipSync(nested)]));assert.equal(r.asset.manifest.parts.length,3);});
+test('authoring toolkit offers both working sample packages',async()=>{let choices;try{await unpackAsset(new Blob([readFileSync('public/downloads/Yeverse-3D-Asset-Authoring-Kit-v1.zip')]));}catch(e){assert.ok(e instanceof PackageChoices);choices=e.choices;}assert.equal(choices.length,2);for(const c of choices){const r=await unpackAsset(c.blob,c.name);assert.ok(r.asset);}});
+test('image-only and model-only resources work independently',async()=>{const picture=await unpackAsset(new Blob([zipSync({'photos/cover.png':files['poster.png']})]));assert.ok(picture.poster.startsWith('data:image/png'));assert.equal(picture.asset,undefined);const direct=await unpackAsset(new Blob([files['poster.png']]),'photo.PNG');assert.ok(direct.poster);const model=await unpackAsset(new Blob([files['model.glb']]),'anything.glb');assert.equal(model.asset.manifest.parts.length,0);const rt=await loadAsset(model.asset.blob,model.asset.manifest);assert.equal(rt.parts.length,3);disposeObject(rt.root);const zipped=await unpackAsset(new Blob([zipSync({'custom-name.glb':files['model.glb']})]));assert.ok(zipped.asset);assert.equal(zipped.poster,undefined);});
+test('invalid model still imports usable cover',async()=>{const r=await unpackAsset(new Blob([zipSync({...files,'model.glb':strToU8('invalid')})]));assert.ok(r.poster);assert.equal(r.asset,undefined);});

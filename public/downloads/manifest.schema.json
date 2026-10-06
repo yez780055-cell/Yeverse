@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Yeverse Asset v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "assetId",
+    "revision",
+    "title",
+    "model",
+    "poster",
+    "parts"
+  ],
+  "properties": {
+    "format": {
+      "const": "yezi.asset"
+    },
+    "version": {
+      "const": 1
+    },
+    "assetId": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9._-]{1,80}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "subtitle": {
+      "type": "string",
+      "maxLength": 100,
+      "default": ""
+    },
+    "category": {
+      "enum": [
+        "数码",
+        "书籍",
+        "游戏",
+        "礼物",
+        "收藏",
+        "其他"
+      ],
+      "default": "收藏"
+    },
+    "model": {
+      "const": "model.glb"
+    },
+    "poster": {
+      "const": "poster.png"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 2000,
+      "default": ""
+    },
+    "camera": {
+      "type": "object",
+      "required": [
+        "direction"
+      ],
+      "properties": {
+        "direction": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "number",
+            "minimum": -1000,
+            "maximum": 1000
+          },
+          "description": "Nonzero camera direction vector; magnitude > 0.01"
+        }
+      }
+    },
+    "animation": {
+      "type": "object",
+      "required": [
+        "durationMs"
+      ],
+      "properties": {
+        "durationMs": {
+          "type": "integer",
+          "minimum": 400,
+          "maximum": 2000
+        }
+      }
+    },
+    "parts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "number",
+          "name",
+          "nameEn",
+          "description",
+          "node",
+          "explode"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+          },
+          "number": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 12
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "nameEn": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 800
+          },
+          "node": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "explode": {
+            "type": "object",
+            "required": [
+              "translation"
+            ],
+            "properties": {
+              "translation": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "items": {
+                  "type": "number",
+                  "minimum": -1000,
+                  "maximum": 1000
+                }
+              },
+              "rotation": {
+                "type": "array",
+                "minItems": 4,
+                "maxItems": 4,
+                "items": {
+                  "type": "number"
+                },
+                "description": "Normalized [x,y,z,w], norm tolerance 0.001; checked by importer"
+              }
+            }
+          }
+        }
+      },
+      "description": "IDs, numbers and node indices each unique. Roots must equal default scene roots."
+    }
+  }
+}
