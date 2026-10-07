@@ -1,0 +1,19 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {ensurePlanetIdentity,stablePlanetSeed} from '../work/planet-tests/lib/collection/data.js';
+import {generatePlanetVisualProfile,planetOrbitRadius,PLANET_TYPES} from '../work/planet-tests/lib/universe/planetGenerator.js';
+
+const cool={primary:'#7198b5',secondary:'#c7dce7',accent:'#8cc9e8',dust:'#789db5',starCore:'#b9eaff'};
+const warm={primary:'#a77d85',secondary:'#ddc1c3',accent:'#d49aa5',dust:'#96747d',starCore:'#ffe1e2'};
+const input=(seed,galaxyPalette=cool,imagePalette)=>({planetSeed:seed,generatorVersion:1,category:'数码',galaxyPalette,imagePalette});
+const structure=p=>({planetType:p.planetType,surfaceType:p.surfaceType,sizeTier:p.sizeTier,size:p.size,roughness:p.roughness,metalness:p.metalness,clearcoat:p.clearcoat,surfacePattern:p.surfacePattern,terrain:p.terrain,macroFeature:p.macroFeature,atmosphere:[p.atmosphere.mode,p.atmosphere.scale,p.atmosphere.layers],clouds:[p.clouds.enabled,p.clouds.scale,p.clouds.speed,p.clouds.direction,p.clouds.pattern],rings:p.rings&&[p.rings.layers,p.rings.innerRadius,p.rings.outerRadius,p.rings.tilt,p.rings.opacity],moons:p.moons.map(m=>[m.size,m.distance,m.inclination,m.period,m.phase]),rotation:[p.rotationSpeed,p.rotationDirection,p.axialTilt]});
+
+test('same seed and generator version are fully deterministic',()=>{const a=generatePlanetVisualProfile(input(123456)),b=generatePlanetVisualProfile(input(123456));assert.deepEqual(a,b);});
+test('identity migration is deterministic and idempotent',()=>{const old={id:'legacy-object'},a=ensurePlanetIdentity(old),b=ensurePlanetIdentity(a);assert.equal(a.planetSeed,stablePlanetSeed(old.id));assert.deepEqual(a,b);});
+test('mutable collection copy does not enter visual generation',()=>{const seed=stablePlanetSeed('rename-safe'),before=generatePlanetVisualProfile(input(seed)),after=generatePlanetVisualProfile(input(seed));assert.deepEqual(before,after);});
+test('moving galaxy preserves structural identity',()=>{const seed=stablePlanetSeed('move-safe'),a=generatePlanetVisualProfile(input(seed,cool)),b=generatePlanetVisualProfile(input(seed,warm));assert.deepEqual(structure(a),structure(b));assert.notEqual(a.accentColor,b.accentColor);});
+test('sampled image colors are deterministic inputs and fallback is complete',()=>{const seed=44,palette={imageHash:9,status:'sampled',colors:['#c14b34','#245a8c','#dbb85a']},a=generatePlanetVisualProfile(input(seed,cool,palette)),b=generatePlanetVisualProfile(input(seed,cool,palette)),fallback=generatePlanetVisualProfile(input(seed,cool,{imageHash:9,status:'fallback',reason:'load-error'}));assert.deepEqual(a,b);assert.ok(/^#[0-9a-f]{6}$/.test(fallback.primaryColor));assert.notEqual(a.primaryColor,fallback.primaryColor);});
+test('seed space reaches all nine planet types',()=>{const types=new Set();for(let seed=0;seed<5000&&types.size<PLANET_TYPES.length;seed++)types.add(generatePlanetVisualProfile(input(seed)).planetType);assert.deepEqual([...types].sort(),[...PLANET_TYPES].sort());});
+test('different seeds create visibly distinct structural profiles',()=>{const profiles=[11,22,33,44,55,66].map(x=>generatePlanetVisualProfile(input(x))),signatures=new Set(profiles.map(p=>`${p.planetType}:${p.sizeTier}:${p.macroFeature}:${p.rings?.layers||0}:${p.moons.length}`));assert.ok(signatures.size>=5);});
+test('profile ranges remain safe for galaxy composition',()=>{for(let seed=0;seed<1000;seed++){const p=generatePlanetVisualProfile(input(seed));assert.ok(p.size>=.92&&p.size<=1.88);assert.ok(p.moons.length<=3);assert.ok(p.rotationSpeed>=.000035&&p.rotationSpeed<=.000165);if(p.rings)assert.ok(p.rings.outerRadius<=2.34);}});
+test('time ordering keeps the established orbit spacing',()=>{assert.deepEqual([0,1,2,3].map(planetOrbitRadius),[8.5,14.5,20.5,26.5]);});

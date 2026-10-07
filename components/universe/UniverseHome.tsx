@@ -7,7 +7,7 @@ import {UniverseScene,type SpaceFocus} from './scene';
 import {UniverseIntroScene} from './IntroScene';
 import {useNativeBack} from '@/lib/platform/native';
 import type {UniverseIntroMode} from './preferences';
-import type {GalaxyObject} from './DigitalSystem';
+import type {GalaxyObject} from './PlanetSystem';
 
 type Props={active:boolean;ready:boolean;introMode:UniverseIntroMode;profiles:GalaxyProfile[];items:GalaxyObject[];generationKey:string;onOpen:(id:string)=>void;onCategory:(c:Category)=>void;onIndex:()=>void;onTimeline:()=>void;onAdd:()=>void;onSettings:()=>void};
 export default function UniverseHome(props:Props){

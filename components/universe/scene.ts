@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {SoftwareUniverseRenderer} from './softwareRenderer';
 import {random,clamp,ease, type Galaxy} from './galaxies';
 import type {UniverseIntroMode} from './preferences';
-import {GalaxySystem,type GalaxyObject,type GalaxyPlanet} from './DigitalSystem';
+import {GalaxySystem,type GalaxyObject,type GalaxyPlanet} from './PlanetSystem';
 
 const vertex = `
 attribute float aSize; attribute float aKind; attribute float aSeed;
