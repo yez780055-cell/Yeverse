@@ -9,7 +9,7 @@ import {buildBackup,parseBackup} from '@/lib/assets/backup';
 import {isNative,exportBackup,useNativeBack,useImmersive} from '@/lib/platform/native';
 import {readUniverseIntroMode,saveUniverseIntroMode,type UniverseIntroMode} from '../universe/preferences';
 import {loadGalaxyProfiles} from '@/lib/universe/galaxyProfiles';
-const UniverseHome=lazy(()=>import('../universe/UniverseHome'));
+import UniverseHome from '../universe/UniverseHome';
 const ObjectViewer=lazy(()=>import('./ObjectViewer'));
 type View='gallery'|'index'|'timeline';
 export default function CollectionApp(){
