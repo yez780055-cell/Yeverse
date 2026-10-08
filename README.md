@@ -33,10 +33,10 @@ pnpm preview
 - `components/collection/CollectionApp.tsx`：页面、导航、编辑、特写。
 - `components/collection/ObjectViewer.tsx`：3D 生命周期、旋转控制、程序模型与拆解。
 - `lib/collection/data.ts`：类型、示例、图片处理、存储和备份校验。
-- `app/globals.css`：移动与桌面布局、字体、动效。
+- `styles/globals.css`：移动与桌面布局、字体、动效。
 - `public/objects/`：原创示例图片，非真实产品精确外观。
 - `public/sw.js`：离线资源缓存，版本更改时更新缓存键。
-- `vite.app.config.ts`、`main.tsx`、`index.html`：实际应用入口与构建。
+- `index.html` → `main.tsx` → `CollectionApp`：Vite + React 正式应用入口；`vite.app.config.ts` 是开发、生产构建和预览使用的唯一 Vite 配置。Capacitor 从 `dist/` 同步 Android 应用。
 
 ## 后续 3D 扩展
 

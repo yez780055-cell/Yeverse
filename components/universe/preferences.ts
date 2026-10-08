@@ -10,6 +10,6 @@ export function readUniverseIntroMode():UniverseIntroMode{
  }catch{return 'full';}
 }
 
-export function saveUniverseIntroMode(value:UniverseIntroMode){
- try{localStorage.setItem(UNIVERSE_INTRO_KEY,value);}catch{}
-}
+export function saveUniverseIntroModeStrict(value:UniverseIntroMode){if(value!=='full'&&value!=='quick'&&value!=='none')throw new Error('开屏模式无效');localStorage.setItem(UNIVERSE_INTRO_KEY,value);}
+
+export function saveUniverseIntroMode(value:UniverseIntroMode){try{saveUniverseIntroModeStrict(value);}catch{}}

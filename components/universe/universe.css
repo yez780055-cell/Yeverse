@@ -22,6 +22,7 @@
 .universe-tools button:active{transform:scale(.9);color:#fff;border-color:#a6afc1}
 .universe-hint{position:absolute;bottom:calc(94px + env(safe-area-inset-bottom,0px));width:100%;text-align:center;font-size:11px;letter-spacing:.18em;color:#808797;pointer-events:none;transition:opacity 2s;animation:universe-arrive 2s both}
 .universe-hint.is-quiet{opacity:0;animation:none}
+.planet-version-notice{position:absolute;top:calc(22px + env(safe-area-inset-top,0px));right:24px;max-width:min(360px,44vw);padding-left:12px;border-left:1px solid #73809680;color:#aeb8c8;font-size:10px;letter-spacing:.08em;line-height:1.6;text-shadow:0 2px 14px #000;pointer-events:none;animation:space-info-in .72s both}.planet-version-notice>span{color:#d5dce7;letter-spacing:.12em}.planet-version-notice ul{margin:5px 0 0;padding:0;list-style:none;color:#8995a7}
 .universe-skip{position:absolute;z-index:3;bottom:calc(34px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);padding:15px 24px;border:0;background:none;color:#858995;font-size:12px;letter-spacing:.15em;animation:universe-arrive 2s 1.2s both}
 .universe-menu{position:absolute;bottom:calc(97px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);width:210px;padding:12px;background:#080e19df;backdrop-filter:blur(20px);border:1px solid #a8b2c226;border-radius:4px;animation:universe-arrive .25s both}
 .universe-menu button{display:flex;align-items:center;gap:18px;width:100%;padding:15px 12px;color:#c8ceda;background:none;border:0;text-align:left;font-size:14px}
@@ -37,7 +38,7 @@
 .universe-tools button{width:40px;height:40px;border-color:#c3cfec10;background:#0e131b22;color:#949ead;opacity:.6}
 .universe-tools button:hover,.universe-tools button:focus-visible{opacity:1}
 .universe-menu{left:auto;right:20px;transform:none;bottom:calc(80px + env(safe-area-inset-bottom,0px))}
-.universe-hint{bottom:calc(38px + env(safe-area-inset-bottom,0px));font-size:11px;width:calc(100% - 80px);text-align:left;padding-left:24px}
+.universe-hint{bottom:calc(38px + env(safe-area-inset-bottom,0px));font-size:11px;width:calc(100% - 80px);text-align:left;padding-left:24px}.planet-version-notice{top:calc(14px + env(safe-area-inset-top,0px));right:16px;max-width:56vw;font-size:9px}
 .galaxy-label{margin-top:40px;height:70px;transition:opacity 1s}
 .galaxy-anchor{height:24px}.galaxy-name{font-size:11px;letter-spacing:.22em}
 .planet-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}

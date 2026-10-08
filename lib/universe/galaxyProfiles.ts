@@ -34,11 +34,14 @@ function safeId(category:string){return 'galaxy-'+stableHash(category).toString(
 function createProfile(category:string,index:number):GalaxyProfile{const seed=stableHash(category),slot=positions[index%positions.length],cycle=Math.floor(index/positions.length),angle=(seed%628)/100,generated={position:(cycle?[Math.cos(angle)*(260+cycle*115),Math.sin(angle)*(220+cycle*90),-180-cycle*160]:[...slot]) as [number,number,number],radius:27+seed%9,shape:shapes[seed%shapes.length],arms:2+seed%4,tilt:[.3+(seed%48)/100,-.45+((seed>>>5)%80)/100,-.7+((seed>>>11)%140)/100] as [number,number,number]},visual=visualPresets[category]||generated;return {id:safeId(category),category,name:names[category]||category.toUpperCase(),starName:`${category}之星`,...visual,seed,palette:presets[category]||generatedPalette(seed),layoutVersion:LAYOUT_VERSION};}
 function valid(v:unknown):v is GalaxyProfile{return Boolean(v&&typeof v==='object'&&typeof (v as GalaxyProfile).category==='string'&&typeof (v as GalaxyProfile).id==='string'&&typeof (v as GalaxyProfile).name==='string'&&typeof (v as GalaxyProfile).starName==='string'&&Array.isArray((v as GalaxyProfile).position)&&typeof (v as GalaxyProfile).palette?.primary==='string');}
 
+export function readSavedGalaxyProfiles():GalaxyProfile[]{const raw=localStorage.getItem(STORAGE_KEY);if(!raw)return[];const parsed=JSON.parse(raw);if(!Array.isArray(parsed))throw new Error('本地星系配置格式无效');return parsed.filter(valid);}
+export function replaceSavedGalaxyProfiles(profiles:GalaxyProfile[]){if(!Array.isArray(profiles)||!profiles.every(valid))throw new Error('星系配置格式无效');localStorage.setItem(STORAGE_KEY,JSON.stringify(profiles));}
+
 export function loadGalaxyProfiles(categories:string[]):GalaxyProfile[]{
- let saved:GalaxyProfile[]=[];try{const raw=localStorage.getItem(STORAGE_KEY);if(raw){const parsed=JSON.parse(raw);if(Array.isArray(parsed))saved=parsed.filter(valid);}}catch{}
+ let saved:GalaxyProfile[]=[];try{saved=readSavedGalaxyProfiles();}catch{}
  const byCategory=new Map(saved.map(x=>[x.category,x]));const profiles=categories.map((category,index)=>{const prior=byCategory.get(category),fresh=createProfile(category,index);if(!prior)return fresh;if((prior.layoutVersion||0)>=LAYOUT_VERSION)return prior;return {...fresh,name:prior.name||fresh.name,starName:prior.starName||fresh.starName,palette:prior.palette||fresh.palette};});
- const active=new Set(categories);try{localStorage.setItem(STORAGE_KEY,JSON.stringify([...profiles,...saved.filter(x=>!active.has(x.category))]));}catch{}
+ const active=new Set(categories);try{replaceSavedGalaxyProfiles([...profiles,...saved.filter(x=>!active.has(x.category))]);}catch{}
  return profiles;
 }
 
-export function saveGalaxyProfiles(profiles:GalaxyProfile[]){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(profiles));}catch{}}
+export function saveGalaxyProfiles(profiles:GalaxyProfile[]){try{replaceSavedGalaxyProfiles(profiles);}catch{}}
