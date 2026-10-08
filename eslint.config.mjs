@@ -24,6 +24,7 @@ export default defineConfig([
   files:['**/*.{ts,tsx}'],
   plugins:{'react-hooks':reactHooks},
   rules:{
+   '@typescript-eslint/no-unused-vars':['error',{argsIgnorePattern:'^_',varsIgnorePattern:'^_'}],
    'react-hooks/rules-of-hooks':'error',
    'react-hooks/exhaustive-deps':'warn',
   },

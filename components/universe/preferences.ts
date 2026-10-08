@@ -12,4 +12,4 @@ export function readUniverseIntroMode():UniverseIntroMode{
 
 export function saveUniverseIntroModeStrict(value:UniverseIntroMode){if(value!=='full'&&value!=='quick'&&value!=='none')throw new Error('开屏模式无效');localStorage.setItem(UNIVERSE_INTRO_KEY,value);}
 
-export function saveUniverseIntroMode(value:UniverseIntroMode){try{saveUniverseIntroModeStrict(value);}catch{}}
+export function saveUniverseIntroMode(value:UniverseIntroMode):boolean{try{saveUniverseIntroModeStrict(value);return true;}catch{return false;}}
