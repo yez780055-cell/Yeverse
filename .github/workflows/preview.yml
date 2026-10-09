@@ -83,7 +83,7 @@ jobs:
 
       - name: Publish dist-preview to Yeverse-Preview
         env:
-          YEVERESE_PREVIEW_TOKEN: ${{ secrets.YEVERESE_PREVIEW_TOKEN }}
+          YEVERSE_PREVIEW_TOKEN: ${{ secrets.YEVERSE_PREVIEW_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$YEVERSE_PREVIEW_TOKEN"
