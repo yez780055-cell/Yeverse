@@ -1,4 +1,3 @@
-'use client';
 import '../universe/universe.css';
 import {useEffect,useState,useMemo,Suspense} from 'react';
 import {Plus, Grid2X2, GalleryHorizontalEnd, Clock3, Search, SlidersHorizontal, Check, Menu} from 'lucide-react';

@@ -1,4 +1,3 @@
-'use client';
 import {lazy,Suspense} from 'react';
 import type {Collectible} from '@/lib/collection/data';
 import type {PendingAsset} from '@/lib/assets/manifest';

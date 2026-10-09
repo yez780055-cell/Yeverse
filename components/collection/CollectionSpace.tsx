@@ -1,4 +1,3 @@
-'use client';
 import {lazy,Suspense,useState} from 'react';
 import {ChevronLeft,Image as ImageIcon,Info,Pencil,ScanLine,Trash2,X} from 'lucide-react';
 import type {Collectible} from '@/lib/collection/data';

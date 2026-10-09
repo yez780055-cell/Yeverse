@@ -3,20 +3,37 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {unzipSync,zipSync,strFromU8,strToU8} from 'fflate';
-import {parseManifest} from '../.sites-runtime/asset-tests/lib/assets/manifest.js';
-import {unpackAsset,PackageChoices} from '../.sites-runtime/asset-tests/lib/assets/package.js';
-import {validateGlb} from '../.sites-runtime/asset-tests/lib/assets/validateGlb.js';
-import {loadAsset,pose,disposeObject} from '../.sites-runtime/asset-tests/lib/assets/runtime.js';
-import {readCollection,saveCollection,readAsset,seed} from '../.sites-runtime/asset-tests/lib/collection/data.js';
-import {BACKUP_FORMAT,BACKUP_VERSION,buildBackup,commitBackupRestore,mergeBackupItems,parseBackup} from '../.sites-runtime/asset-tests/lib/assets/backup.js';
-import {readSavedGalaxyProfiles,replaceSavedGalaxyProfiles} from '../.sites-runtime/asset-tests/lib/universe/galaxyProfiles.js';
-import {UNIVERSE_INTRO_KEY,readUniverseIntroMode,saveUniverseIntroModeStrict} from '../.sites-runtime/asset-tests/components/universe/preferences.js';
+import {parseManifest} from '../.test-runtime/asset-tests/lib/assets/manifest.js';
+import {unpackAsset,PackageChoices} from '../.test-runtime/asset-tests/lib/assets/package.js';
+import {validateGlb} from '../.test-runtime/asset-tests/lib/assets/validateGlb.js';
+import {loadAsset,pose,disposeObject} from '../.test-runtime/asset-tests/lib/assets/runtime.js';
+import {readCollection,saveCollection,readAsset,seed} from '../.test-runtime/asset-tests/lib/collection/data.js';
+import {BACKUP_FORMAT,BACKUP_VERSION,buildBackup,commitBackupRestore,mergeBackupItems,parseBackup} from '../.test-runtime/asset-tests/lib/assets/backup.js';
+import {readSavedGalaxyProfiles,replaceSavedGalaxyProfiles} from '../.test-runtime/asset-tests/lib/universe/galaxyProfiles.js';
+import {UNIVERSE_INTRO_KEY,readUniverseIntroMode,saveUniverseIntroModeStrict} from '../.test-runtime/asset-tests/components/universe/preferences.js';
 globalThis.FileReader=class{async readAsDataURL(blob){try{this.result=`data:${blob.type};base64,${Buffer.from(await blob.arrayBuffer()).toString('base64')}`;this.onload();}catch(e){this.error=e;this.onerror();}}};
 class MemoryStorage{values=new Map();getItem(key){return this.values.get(key)??null;}setItem(key,value){this.values.set(String(key),String(value));}removeItem(key){this.values.delete(key);}}
 Object.defineProperty(globalThis,'localStorage',{value:new MemoryStorage(),configurable:true});
 const bytes=readFileSync('public/downloads/yeverse-demo-kit.zip');const files=unzipSync(bytes);const manifest=parseManifest(JSON.parse(strFromU8(files['manifest.json'])));
 const galaxyProfile=(category,name)=>({id:`profile-${category}`,category,name,starName:`${name} star`,position:[1,2,3],radius:28,shape:'spiral',arms:3,tilt:[.1,.2,.3],seed:123,palette:{primary:'#112233',secondary:'#223344',accent:'#334455',dust:'#445566',starCore:'#556677'},layoutVersion:3});
 function alteredGlb(change){const b=files['model.glb'];const v=new DataView(b.buffer,b.byteOffset);const length=v.getUint32(12,true);const json=JSON.parse(strFromU8(b.subarray(20,20+length)));change(json);let text=JSON.stringify(json);while(text.length%4)text+=' ';const metadata=strToU8(text),bin=b.subarray(20+length);const out=new Uint8Array(20+metadata.length+bin.length);const dv=new DataView(out.buffer);[0x46546c67,2,out.length,metadata.length,0x4e4f534a].forEach((n,i)=>dv.setUint32(i*4,n,true));out.set(metadata,20);out.set(bin,20+metadata.length);return out;}
+test('v4 requires explicit valid Planet identity fields',async()=>{
+ const item={id:'strict-v4',number:'001',name:'Strict',subtitle:'',date:'2024-01-01',category:'数码',image:'/objects/placeholder.svg',story:'',meaning:'',tags:[],photos:[],planetSeed:0,generatorVersion:1};
+ const source={format:BACKUP_FORMAT,version:4,items:[item],assets:{},galaxyProfiles:[galaxyProfile('数码','DIGITAL')],preferences:{introMode:'full'}};
+ const valid=await parseBackup(JSON.parse(JSON.stringify(source)));assert.equal(valid.items[0].planetSeed,0);assert.equal(valid.items[0].generatorVersion,1);
+ const invalidCases=[
+  value=>delete value.planetSeed,
+  value=>delete value.generatorVersion,
+  value=>{value.planetSeed='1';},
+  value=>{value.planetSeed=-1;},
+  value=>{value.planetSeed=1.5;},
+  value=>{value.planetSeed=0x100000000;},
+  value=>{value.generatorVersion='1';},
+  value=>{value.generatorVersion=0;},
+  value=>{value.generatorVersion=1.5;},
+ ];
+ for(const invalidate of invalidCases){const candidate=JSON.parse(JSON.stringify(source));invalidate(candidate.items[0]);await assert.rejects(parseBackup(candidate),/Planet 身份无效/);}
+});
 test('two unrelated package definitions parse without website code changes',async()=>{for(const [name,count] of [['yeverse-demo-kit.zip',3],['yeverse-demo-four-parts.zip',4]]){const parsed=await unpackAsset(new Blob([readFileSync('public/downloads/'+name)]));assert.equal(parsed.asset.manifest.parts.length,count);assert.equal(parsed.stats.triangles,12*count);}});
 test('manifest rejects future versions, duplicate ids and invalid rotations',()=>{assert.throws(()=>parseManifest({...manifest,version:2}));assert.throws(()=>parseManifest({...manifest,parts:[manifest.parts[0],manifest.parts[0]]}));assert.throws(()=>parseManifest({...manifest,parts:[{...manifest.parts[0],explode:{translation:[0,0,0],rotation:[0,0,0,0]}}]}));});
 test('ZIP rejects missing files and unexpected or traversal paths',async()=>{await assert.rejects(unpackAsset(new Blob([zipSync({'manifest.json':files['manifest.json']})])));await assert.rejects(unpackAsset(new Blob([zipSync({...files,'../bad.js':strToU8('bad')})])));});

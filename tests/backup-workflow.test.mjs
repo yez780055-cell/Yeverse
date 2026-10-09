@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {restoreParsedBackup} from '../.sites-runtime/asset-tests/lib/collection/backupWorkflow.js';
+import {restoreParsedBackup} from '../.test-runtime/asset-tests/lib/collection/backupWorkflow.js';
 
 const item=(id,name)=>({id,name,number:'001',subtitle:'',date:'2024-01-01',category:'数码',image:'/objects/placeholder.svg',story:'',meaning:'',tags:[],photos:[],planetSeed:1,generatorVersion:1});
 const settings=(introMode='full')=>({galaxyProfiles:[],introMode});

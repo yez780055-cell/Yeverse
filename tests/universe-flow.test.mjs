@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {collectionCloseAction,collectionStageFromUniverse,isIntroHandoffReady,planetActivationAction} from '../.sites-runtime/state-tests/lib/universe/flowState.js';
+import {collectionCloseAction,collectionStageFromUniverse,isIntroHandoffReady,planetActivationAction} from '../.test-runtime/state-tests/lib/universe/flowState.js';
 
 test('the first activation focuses a planet and the second activation opens that same planet',()=>{
  assert.equal(planetActivationAction(undefined,'p-1'),'focus');

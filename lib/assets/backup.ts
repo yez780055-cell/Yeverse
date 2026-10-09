@@ -18,6 +18,12 @@ const isRecord=(value:unknown):value is Record<string,unknown>=>Boolean(value&&t
 const validBackupItems=(value:unknown):boolean=>validateBackup(value);
 const finiteTuple=(value:unknown):value is [number,number,number]=>Array.isArray(value)&&value.length===3&&value.every(x=>typeof x==='number'&&Number.isFinite(x));
 
+function validV4PlanetIdentity(item:unknown):boolean{
+ if(!isRecord(item))return false;
+ const seed=item.planetSeed,version=item.generatorVersion;
+ return typeof seed==='number'&&Number.isInteger(seed)&&seed>=0&&seed<=0xffffffff&&typeof version==='number'&&Number.isInteger(version)&&version>0;
+}
+
 function validGalaxyProfile(value:unknown):value is GalaxyProfile{
  if(!isRecord(value)||typeof value.id!=='string'||!value.id||typeof value.category!=='string'||!value.category.trim()||value.category.length>40||typeof value.name!=='string'||!value.name||typeof value.starName!=='string'||!value.starName)return false;
  if(!finiteTuple(value.position)||!finiteTuple(value.tilt)||typeof value.radius!=='number'||!Number.isFinite(value.radius)||value.radius<=0)return false;
@@ -39,6 +45,7 @@ function validateV4(value:Record<string,unknown>):BackupSettings{
  if(value.format!==BACKUP_FORMAT||value.version!==BACKUP_VERSION)throw new Error('备份格式标识或版本不匹配');
  if(!validBackupItems(value)||!isRecord(value.assets)||!validGalaxyProfiles(value.galaxyProfiles)||!isRecord(value.preferences))throw new Error('v4 备份缺少必需数据');
  const envelope=value as Record<string,unknown>,preferences=envelope.preferences as Record<string,unknown>,assetMap=envelope.assets as Record<string,unknown>;
+ if(!(envelope.items as unknown[]).every(validV4PlanetIdentity))throw new Error('v4 备份中的 Planet 身份无效');
  if(!introModes.includes(preferences.introMode as UniverseIntroMode))throw new Error('备份中的开屏模式无效');
  const profiles=envelope.galaxyProfiles as unknown[];
  if(Object.values(assetMap).some(asset=>typeof asset!=='string'))throw new Error('备份中的模型资源格式无效');

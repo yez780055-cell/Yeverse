@@ -1,4 +1,3 @@
-'use client';
 import {Suspense,lazy,useState} from 'react';
 import {Box,ImagePlus,Plus,X} from 'lucide-react';
 import {PLANET_GENERATOR_VERSION,stablePlanetSeed,imageFile,type Category,type Collectible} from '@/lib/collection/data';

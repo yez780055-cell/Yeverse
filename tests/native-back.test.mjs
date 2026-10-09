@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {runBackHandlers} from '../.sites-runtime/native-back-tests/lib/platform/backPriority.js';
+import {runBackHandlers} from '../.test-runtime/native-back-tests/lib/platform/backPriority.js';
 
 test('native back dispatch uses descending priority and stops at the first consumer',()=>{
   const calls=[];

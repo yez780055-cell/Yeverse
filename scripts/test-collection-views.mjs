@@ -2,7 +2,7 @@ import ts from 'typescript';
 import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 
-const root='.sites-runtime/view-tests';
+const root='.test-runtime/view-tests';
 for(const path of ['lib/collection/data.ts','lib/collection/views.ts']){
   const output=`${root}/${path.replace(/\.ts$/,'.js')}`;
   mkdirSync(output.slice(0,output.lastIndexOf('/')),{recursive:true});

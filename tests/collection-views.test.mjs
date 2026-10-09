@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {selectCollectionViews} from '../.sites-runtime/view-tests/lib/collection/views.js';
+import {selectCollectionViews} from '../.test-runtime/view-tests/lib/collection/views.js';
 
 const item=(id,category,date,name=id,subtitle='',tags=[])=>({id,category,date,name,subtitle,tags,number:id,image:'',story:'',meaning:'',photos:[],planetSeed:0,generatorVersion:1});
 const items=[item('one','数码','2024-02-01','Garmin','跑步时使用',['运动']),item('two','游戏','2026-01-03','Minecraft','方块世界',['建造']),item('three','数码','2025-08-14','Watch','运动记录',['日常'])];

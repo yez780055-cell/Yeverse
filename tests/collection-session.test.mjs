@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {collectionSessionReducer,initialCollectionSession} from '../.sites-runtime/session-tests/lib/collection/sessionState.js';
+import {collectionSessionReducer,initialCollectionSession} from '../.test-runtime/session-tests/lib/collection/sessionState.js';
 
 test('list and universe entry choose their existing detail phases and reset local detail state',()=>{
   const expanded={...initialCollectionSession,expanded:true,archive:true,deleteConfirm:true};

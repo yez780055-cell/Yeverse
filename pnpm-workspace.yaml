@@ -5,8 +5,8 @@ strictDepBuilds: true
 allowBuilds:
   esbuild: true
   fsevents: true
-storeDir: .sites-runtime/pnpm-store
-cacheDir: .sites-runtime/pnpm-store/policy-cache
+storeDir: .local-tool-cache/pnpm-store
+cacheDir: .local-tool-cache/pnpm-store/policy-cache
 enableGlobalVirtualStore: false
 packageImportMethod: auto
 optimisticRepeatInstall: false

@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint';
 import globals from 'globals';
 
 export default defineConfig([
- globalIgnores(['dist/**','node_modules/**','.sites-runtime/**','android/**','outputs/**','work/**']),
+ globalIgnores(['dist/**','node_modules/**','.test-runtime/**','.local-tool-cache/**','.legacy-tool-cache/**','android/**','outputs/**','work/**']),
  js.configs.recommended,
  ...tseslint.configs.recommended,
  {

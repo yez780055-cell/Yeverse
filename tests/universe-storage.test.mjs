@@ -1,8 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {loadGalaxyProfiles} from '../.sites-runtime/storage-tests/lib/universe/galaxyProfiles.js';
-import {resolveGalaxyProfiles} from '../.sites-runtime/storage-tests/lib/universe/galaxyProfiles.js';
-import {saveUniverseIntroMode} from '../.sites-runtime/storage-tests/components/universe/preferences.js';
+import {loadGalaxyProfiles,resolveGalaxyProfiles} from '../.test-runtime/storage-tests/lib/universe/galaxyProfiles.js';
+import {saveUniverseIntroMode} from '../.test-runtime/storage-tests/components/universe/preferences.js';
 
 const PROFILE_KEY='yezi-galaxy-profiles-v1';
 const INTRO_KEY='yezi-universe-intro-mode-v1';
