@@ -10,6 +10,16 @@ export type CollectionSessionAction=
   |{type:'set-delete-confirm';value:boolean}
   |{type:'reset'};
 
+export type CollectionDeleteExitAction='await-universe-exit'|'clear-session';
+
+export function collectionDeleteExitAction(exitStarted:boolean):CollectionDeleteExitAction{
+  return exitStarted?'await-universe-exit':'clear-session';
+}
+
+export function shouldKeepUniverseActive(inGallery:boolean,hasSelectedCollection:boolean,detailPhase:CollectionSessionState['detailPhase']):boolean{
+  return inGallery||hasSelectedCollection||detailPhase==='exiting';
+}
+
 export const initialCollectionSession:CollectionSessionState={selectedId:null,detailPhase:'approach',expanded:false,archive:false,deleteConfirm:false};
 
 export function collectionSessionReducer(state:CollectionSessionState,action:CollectionSessionAction):CollectionSessionState{
