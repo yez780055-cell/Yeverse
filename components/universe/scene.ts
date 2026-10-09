@@ -5,6 +5,7 @@ import type {UniverseIntroMode} from './preferences';
 import {GalaxySystem,type GalaxyObject,type GalaxyPlanet} from './PlanetSystem';
 import {collectionReturnContract,planetActivationAction,planetFocusBackAction} from '@/lib/universe/flowState';
 import {publicAssetUrl} from '@/lib/assets/publicAssetUrl';
+import {UniverseInputController,type UniversePointerState} from './UniverseInputController';
 
 const vertex = `
 attribute float aSize; attribute float aKind; attribute float aSeed;
@@ -119,7 +120,7 @@ export class UniverseScene {
  private volumeCoreGeometry=new THREE.SphereGeometry(1,24,16);private volumeGlowTexture=coreGlowTexture();private galaxyVolumes:{galaxy:Galaxy;group:THREE.Group;inner:THREE.Mesh<THREE.PlaneGeometry,THREE.MeshBasicMaterial>;core:THREE.Mesh<THREE.SphereGeometry,THREE.MeshBasicMaterial>;halo:THREE.Sprite;innerMaterial:THREE.MeshBasicMaterial;coreMaterial:THREE.MeshBasicMaterial;haloMaterial:THREE.SpriteMaterial}[]=[];
  private materials:THREE.ShaderMaterial[]=[];private galaxyMaterials=new Map<string,THREE.ShaderMaterial>();private geometries:THREE.BufferGeometry[]=[];
  private clock=0;private last=0;private frame=0;private disposed=false;private active=true;private nativeActive=true;private ready=false;private reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
- private target=new THREE.Vector3();private velocity=new THREE.Vector2();private pointers=new Map<number,{x:number;y:number}>();private down={x:0,y:0,time:0};private moved=false;
+ private target=new THREE.Vector3();private velocity=new THREE.Vector2();private inputController!:UniverseInputController;private get pointers():UniversePointerState{return this.inputController.pointerState;}
  private yaw=0;private pitch=0;private homeRotation=new THREE.Quaternion();private turnVelocity=new THREE.Vector2();
  private flying?:{start:THREE.Vector3;end:THREE.Vector3;rotation:THREE.Quaternion;startRotation:THREE.Quaternion;time:number;galaxy:Galaxy;returning:boolean;entered?:boolean};private home=new THREE.Vector3();
  private duration:number;private handoffTime:number;private baselineDuration:number;private completed=false;private firstFrame=false;private readySent=false;private w=1;private h=1;private slowFrames=0;private quality=1;private observer:ResizeObserver;
@@ -160,12 +161,22 @@ export class UniverseScene {
   if(this.completed){this.camera.position.copy(this.home);this.camera.quaternion.copy(this.homeRotation);this.core.visible=false;}
   else this.camera.position.set(0,0,18);
   this.observer=new ResizeObserver(()=>this.resize());this.observer.observe(canvas);this.resize();
-  canvas.addEventListener('pointerdown',this.pointerDown);canvas.addEventListener('pointermove',this.pointerMove);canvas.addEventListener('pointerup',this.pointerUp);canvas.addEventListener('pointercancel',this.pointerCancel);canvas.addEventListener('lostpointercapture',this.pointerCancel);canvas.addEventListener('wheel',this.wheel,{passive:false});canvas.addEventListener('webglcontextlost',this.contextLost);
+  this.inputController=new UniverseInputController(canvas,{
+   canStart:()=>this.completed&&!this.flying&&!this.planetFlight&&!this.focusFlight,
+   onPointerDown:()=>{this.velocity.set(0,0);this.turnVelocity.set(0,0);},
+   onDrag:(dx,dy)=>{this.yaw+=dx*.0022;this.pitch=clamp(this.pitch+dy*.0018,-1.45,1.45);this.target.add(new THREE.Vector3(-dx*.065,dy*.065,0).applyQuaternion(this.camera.quaternion));this.turnVelocity.set(dx*.045,dy*.036).clampLength(0,1.1);this.velocity.set(-dx*1.4,dy*1.4).clampLength(0,30);},
+   onPinch:amount=>this.travel(amount),
+   onTap:point=>this.handleTap(point.clientX,point.clientY),
+   onCancel:()=>{this.velocity.set(0,0);this.turnVelocity.set(0,0);},
+   onWheel:deltaY=>{if(this.completed&&!this.flying&&!this.planetFlight&&!this.focusFlight)this.travel(-deltaY*.15);},
+  });
+  this.inputController.attach();
+  canvas.addEventListener('webglcontextlost',this.contextLost);
   this.nativeHandler=e=>{this.nativeActive=(e as CustomEvent<boolean>).detail;this.schedule();};document.addEventListener('native-visibility',this.nativeHandler);document.addEventListener('visibilitychange',this.schedule);if(!this.completed)this.schedule();
  }
  private resize=()=>{this.w=this.canvas.clientWidth;this.h=this.canvas.clientHeight;if(!this.w||!this.h)return;this.camera.aspect=this.w/this.h;this.camera.updateProjectionMatrix();this.renderer.setSize(this.w,this.h,false);for(const m of this.materials){m.uniforms.uHeight.value=this.h;m.uniforms.uDpr.value=this.renderer.getPixelRatio();}};
  setReady(v:boolean){this.ready=v;}
- setActive(v:boolean){if(v===this.active)return;this.active=v;this.pointers.clear();this.schedule();if(v)this.notifySafeRebuildPoint();}
+ setActive(v:boolean){if(v===this.active)return;this.active=v;this.inputController.reset();this.schedule();if(v)this.notifySafeRebuildPoint();}
  isAtUniverseHome(){return this.completed&&this.mode==='universe'&&!this.focusedGalaxy&&!this.focusedPlanet&&!this.flying&&!this.focusFlight&&!this.planetFlight&&!this.universeFocusHome&&!this.systemFocusHome;}
  private notifySafeRebuildPoint(){if(this.isAtUniverseHome())this.onSafeRebuildPoint();}
  private schedule=()=>{cancelAnimationFrame(this.frame);this.last=0;if(!this.disposed&&this.active&&this.nativeActive&&!document.hidden)this.frame=requestAnimationFrame(this.tick);};
@@ -240,16 +251,23 @@ export class UniverseScene {
  private travel=(amount:number)=>{this.target.addScaledVector(this.camera.getWorldDirection(new THREE.Vector3()),clamp(amount,-75,75));this.target.clampLength(0,1000);};
  private birthPhase():UniverseState['phase']{if(this.completed){if(this.planetFlight)return this.planetFlight.returning?'collection-return':this.planetFlight.entered?'collection':'collection-approach';return this.flying||this.focusFlight?'flight':'explore';}if(this.clock<this.baselineDuration*.18)return'singularity';if(this.clock<this.handoffTime*.82)return'explosion';if(this.clock<this.handoffTime)return'deep-space';return'formation';}
  skip=()=>{this.clock=Math.max(this.clock,this.duration-(this.introMode==='quick'?.22:.65));};
- private pointerDown=(e:PointerEvent)=>{if(!this.completed||this.flying||this.planetFlight||this.focusFlight)return;this.canvas.setPointerCapture(e.pointerId);this.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});this.down={x:e.clientX,y:e.clientY,time:performance.now()};this.moved=this.pointers.size>1;this.velocity.set(0,0);this.turnVelocity.set(0,0);};
- private pointerMove=(e:PointerEvent)=>{const old=this.pointers.get(e.pointerId);if(!old)return;const before=[...this.pointers.values()];this.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});const after=[...this.pointers.values()];if(Math.hypot(e.clientX-this.down.x,e.clientY-this.down.y)>7)this.moved=true;
-  if(before.length===2){const d0=Math.hypot(before[0].x-before[1].x,before[0].y-before[1].y),d1=Math.hypot(after[0].x-after[1].x,after[0].y-after[1].y);if(d1>4)this.travel(Math.log(d1/d0)*180);this.moved=true;}
-  else if(before.length===1){const dx=e.clientX-old.x,dy=e.clientY-old.y;this.yaw+=dx*.0022;this.pitch=clamp(this.pitch+dy*.0018,-1.45,1.45);this.target.add(new THREE.Vector3(-dx*.065,dy*.065,0).applyQuaternion(this.camera.quaternion));this.turnVelocity.set(dx*.045,dy*.036).clampLength(0,1.1);this.velocity.set(-dx*1.4,dy*1.4).clampLength(0,30);}
-
- };
- private pointerUp=(e:PointerEvent)=>{if(!this.pointers.has(e.pointerId))return;const tap=!this.moved&&this.pointers.size===1&&performance.now()-this.down.time<450;this.pointers.delete(e.pointerId);if(!tap)return;const bounds=this.canvas.getBoundingClientRect(),x=e.clientX-bounds.left,y=e.clientY-bounds.top;const ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2(x/this.w*2-1,1-y/this.h*2),this.camera);const system=this.systems.get(this.mode);if(system){const planet=system.hit(ray);if(planet)this.enterPlanet(planet.item.id);else this.cancelFocus();return;}let best:Galaxy|undefined,near=Infinity;for(const g of this.galaxies){const rotation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),this.reduced?0:this.clock*.0013).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...g.tilt)));const scale=this.galaxyVisualScale(g),matrix=new THREE.Matrix4().compose(new THREE.Vector3(...g.position),rotation,new THREE.Vector3(scale,scale,scale));const local=ray.ray.clone().applyMatrix4(matrix.clone().invert());const hit=local.intersectPlane(new THREE.Plane(new THREE.Vector3(0,0,1),0),new THREE.Vector3());if(hit&&Math.hypot(hit.x,hit.y)<g.radius*.94){const d=hit.applyMatrix4(matrix).distanceTo(this.camera.position);if(d<near){best=g;near=d;}}}if(best)this.enter(best);else this.cancelFocus();};
- private pointerCancel=(e:PointerEvent)=>{if(!this.pointers.has(e.pointerId))return;this.pointers.delete(e.pointerId);this.moved=true;this.velocity.set(0,0);this.turnVelocity.set(0,0);};
- private wheel=(e:WheelEvent)=>{e.preventDefault();if(this.completed&&!this.flying&&!this.planetFlight&&!this.focusFlight)this.travel(-e.deltaY*.15);};
+ private handleTap(clientX:number,clientY:number){
+  const bounds=this.canvas.getBoundingClientRect(),x=clientX-bounds.left,y=clientY-bounds.top;
+  const ray=new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2(x/this.w*2-1,1-y/this.h*2),this.camera);
+  const system=this.systems.get(this.mode);
+  if(system){const planet=system.hit(ray);if(planet)this.enterPlanet(planet.item.id);else this.cancelFocus();return;}
+  let best:Galaxy|undefined,near=Infinity;
+  for(const g of this.galaxies){
+   const rotation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),this.reduced?0:this.clock*.0013).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...g.tilt)));
+   const scale=this.galaxyVisualScale(g),matrix=new THREE.Matrix4().compose(new THREE.Vector3(...g.position),rotation,new THREE.Vector3(scale,scale,scale));
+   const local=ray.ray.clone().applyMatrix4(matrix.clone().invert());
+   const hit=local.intersectPlane(new THREE.Plane(new THREE.Vector3(0,0,1),0),new THREE.Vector3());
+   if(hit&&Math.hypot(hit.x,hit.y)<g.radius*.94){const d=hit.applyMatrix4(matrix).distanceTo(this.camera.position);if(d<near){best=g;near=d;}}
+  }
+  if(best)this.enter(best);else this.cancelFocus();
+ }
  private contextLost=(e:Event)=>{e.preventDefault();this.onError();};
  snapshot():UniverseState{return {phase:this.birthPhase(),elapsed:this.clock,camera:this.camera.position.toArray() as [number,number,number],drawCalls:this.renderer.info.render.calls,points:this.renderer.info.render.points};}
- dispose(){this.disposed=true;clearTimeout(this.emissionTimeout);cancelAnimationFrame(this.frame);this.observer.disconnect();document.removeEventListener('visibilitychange',this.schedule);document.removeEventListener('native-visibility',this.nativeHandler);this.canvas.removeEventListener('pointerdown',this.pointerDown);this.canvas.removeEventListener('pointermove',this.pointerMove);this.canvas.removeEventListener('pointerup',this.pointerUp);this.canvas.removeEventListener('pointercancel',this.pointerCancel);this.canvas.removeEventListener('lostpointercapture',this.pointerCancel);this.canvas.removeEventListener('wheel',this.wheel);this.canvas.removeEventListener('webglcontextlost',this.contextLost);for(const system of this.systems.values())system.dispose(this.scene);this.geometries.forEach(g=>g.dispose());this.materials.forEach(m=>m.dispose());for(const cloud of this.galaxyClouds){this.scene.remove(cloud.mesh);cloud.mesh.material.dispose();cloud.texture.dispose();}for(const volume of this.galaxyVolumes){this.scene.remove(volume.group);volume.innerMaterial.dispose();volume.coreMaterial.dispose();volume.haloMaterial.dispose();}this.cloudGeometry.dispose();this.volumeCoreGeometry.dispose();this.volumeGlowTexture.dispose();(this.scene.getObjectByName('background') as THREE.Points<THREE.BufferGeometry,THREE.PointsMaterial>).material.dispose();this.core.material.map?.dispose();this.core.material.dispose();this.texture?.dispose();this.renderer.dispose();}
+ dispose(){this.disposed=true;clearTimeout(this.emissionTimeout);cancelAnimationFrame(this.frame);this.observer.disconnect();document.removeEventListener('visibilitychange',this.schedule);document.removeEventListener('native-visibility',this.nativeHandler);this.inputController.dispose();this.canvas.removeEventListener('webglcontextlost',this.contextLost);for(const system of this.systems.values())system.dispose(this.scene);this.geometries.forEach(g=>g.dispose());this.materials.forEach(m=>m.dispose());for(const cloud of this.galaxyClouds){this.scene.remove(cloud.mesh);cloud.mesh.material.dispose();cloud.texture.dispose();}for(const volume of this.galaxyVolumes){this.scene.remove(volume.group);volume.innerMaterial.dispose();volume.coreMaterial.dispose();volume.haloMaterial.dispose();}this.cloudGeometry.dispose();this.volumeCoreGeometry.dispose();this.volumeGlowTexture.dispose();(this.scene.getObjectByName('background') as THREE.Points<THREE.BufferGeometry,THREE.PointsMaterial>).material.dispose();this.core.material.map?.dispose();this.core.material.dispose();this.texture?.dispose();this.renderer.dispose();}
 }

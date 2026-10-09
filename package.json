@@ -18,6 +18,7 @@
     "test:collection-views": "node scripts/test-collection-views.mjs",
     "test:collection-session": "node scripts/test-collection-session.mjs",
     "test:native-back": "node scripts/test-native-back.mjs",
+    "test:universe-input": "node scripts/test-universe-input.mjs",
     "typecheck": "tsc --noEmit --incremental false",
     "android:apk": "node scripts/android-build.mjs",
     "android:sync": "pnpm build && cap sync android",
