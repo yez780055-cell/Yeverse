@@ -4,26 +4,23 @@ on:
   push:
     branches:
       - wip/universe-6-1a
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: mobile-preview-${{ github.ref }}
+  group: mobile-preview
   cancel-in-progress: true
 
 jobs:
-  build:
-    if: github.ref == 'refs/heads/wip/universe-6-1a'
+  publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      pages: read
+    timeout-minutes: 30
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -36,34 +33,85 @@ jobs:
           version: 11.25.0
           cache: true
 
-      - name: Configure GitHub Pages
-        id: pages
-        uses: actions/configure-pages@v5
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build preview
+      - name: Run tests
+        run: pnpm test
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+        continue-on-error: true
+
+      - name: Build production output
+        run: pnpm build
+
+      - name: Build preview output
         run: pnpm build:preview
         env:
-          GITHUB_PAGES_BASE: ${{ steps.pages.outputs.base_path }}
+          GITHUB_PAGES_BASE: /Yeverse-Preview/
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: dist-preview
+      - name: Verify preview output
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {existsSync, readFileSync} from 'node:fs';
 
-  deploy:
-    if: github.ref == 'refs/heads/wip/universe-6-1a'
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          const base = '/Yeverse-Preview/';
+          const html = readFileSync('dist-preview/index.html', 'utf8');
+          assert.ok(!html.includes('/Yeverse/'), 'legacy Pages base found in index.html');
+          assert.ok(!existsSync('dist-preview/sw.js'), 'Preview must not contain a service worker');
+          assert.ok(!existsSync('dist-preview/manifest.webmanifest'), 'Preview must not contain a PWA manifest');
+
+          const references = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
+            .map((match) => match[1])
+            .filter((reference) => !/^(?:https?:|data:)/.test(reference));
+          const script = references.find((reference) => reference.endsWith('.js'));
+          const stylesheet = references.find((reference) => reference.endsWith('.css'));
+          assert.ok(script, 'built HTML does not reference a JavaScript bundle');
+          assert.ok(stylesheet, 'built HTML does not reference a CSS bundle');
+
+          for (const reference of references) {
+            assert.ok(reference.startsWith(base), `resource is outside the Preview base: ${reference}`);
+            const file = `dist-preview/${reference.slice(base.length).split(/[?#]/, 1)[0]}`;
+            assert.ok(existsSync(file), `built HTML references a missing file: ${reference}`);
+          }
+          NODE
+
+      - name: Publish dist-preview to Yeverse-Preview
+        env:
+          YEVERESE_PREVIEW_TOKEN: ${{ secrets.YEVERESE_PREVIEW_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$YEVERSE_PREVIEW_TOKEN"
+
+          preview_dir="$RUNNER_TEMP/yeverse-preview"
+          mkdir -p "$preview_dir"
+          cp -a dist-preview/. "$preview_dir/"
+          touch "$preview_dir/.nojekyll"
+          cd "$preview_dir"
+
+          git init --quiet --initial-branch=gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit --quiet -m "Deploy preview from $GITHUB_SHA"
+
+          cat > "$RUNNER_TEMP/preview-askpass.sh" <<'ASKPASS'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' x-access-token ;;
+            *Password*) printf '%s\n' "$YEVERSE_PREVIEW_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          ASKPASS
+          chmod 700 "$RUNNER_TEMP/preview-askpass.sh"
+
+          GIT_ASKPASS="$RUNNER_TEMP/preview-askpass.sh" \
+            GIT_TERMINAL_PROMPT=0 \
+            git -c credential.helper= push --force \
+              https://github.com/yez780055-cell/Yeverse-Preview.git \
+              HEAD:gh-pages
