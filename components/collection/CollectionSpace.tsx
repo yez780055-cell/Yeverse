@@ -1,6 +1,7 @@
 import {lazy,Suspense,useState} from 'react';
 import {ChevronLeft,Image as ImageIcon,Info,Pencil,ScanLine,Trash2,X} from 'lucide-react';
 import type {Collectible} from '@/lib/collection/data';
+import {publicAssetUrl} from '@/lib/assets/publicAssetUrl';
 const ObjectViewer=lazy(()=>import('./ObjectViewer'));
 
 export type CollectionSpacePhase='approach'|'visible'|'exiting';
@@ -16,7 +17,7 @@ export default function CollectionSpace({item,phase,expanded,archive,deleteConfi
    <p>No. {item.number}<i/>{item.date.replaceAll('-',' . ')}<i/>{item.category}</p>
   </header>
   <div className={`collection-object ${objectReady?'is-ready':''}`}>
-   {item.model?<Suspense fallback={null}><ObjectViewer immersive model={item.model} expanded={expanded} onExpandedChange={onExpandedChange} onExplode={()=>canExplode&&onExpandedChange(true)} onReady={()=>setObjectReady(true)}/></Suspense>:<button className="collection-photo-object" onClick={onInspectImage} aria-label="查看藏品高清照片"><img src={item.image} alt={item.name}/></button>}
+   {item.model?<Suspense fallback={null}><ObjectViewer immersive model={item.model} expanded={expanded} onExpandedChange={onExpandedChange} onExplode={()=>canExplode&&onExpandedChange(true)} onReady={()=>setObjectReady(true)}/></Suspense>:<button className="collection-photo-object" onClick={onInspectImage} aria-label="查看藏品高清照片"><img src={publicAssetUrl(item.image)} alt={item.name}/></button>}
   </div>
   <nav className="collection-controls" aria-label="藏品空间操作">
    <span>拖动旋转</span><span>双指缩放</span>

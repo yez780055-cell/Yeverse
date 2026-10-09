@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vite --config vite.app.config.ts",
     "build": "vite build --config vite.app.config.ts && node scripts/finalize-pwa.mjs",
+    "build:preview": "vite build --config vite.app.config.ts --mode preview && node scripts/finalize-preview.mjs",
     "lint": "eslint . --ignore-pattern dist",
     "preview": "vite preview --config vite.app.config.ts",
     "test": "node scripts/test.mjs",
