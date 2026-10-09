@@ -8,7 +8,7 @@ import {UniverseIntroScene} from './IntroScene';
 import {useNativeBack} from '@/lib/platform/native';
 import type {UniverseIntroMode} from './preferences';
 import type {GalaxyObject} from './PlanetSystem';
-import {collectionStageFromUniverse,isIntroHandoffReady} from '@/lib/universe/flowState';
+import {collectionStageFromUniverse,isIntroHandoffReady,shouldUniverseHandleBack} from '@/lib/universe/flowState';
 
 export type UniverseHomeHandle={exitCollection:()=>boolean;presentCollection:(id:string)=>boolean};
 type Props={active:boolean;ready:boolean;introMode:UniverseIntroMode;profiles:GalaxyProfile[];items:GalaxyObject[];generationKey:string;onOpen:(id:string)=>void;onDetailStage:(stage:'approach'|'entered'|'exited',id:string)=>void;onCategory:(c:Category)=>void;onIndex:()=>void;onTimeline:()=>void;onAdd:()=>void;onSettings:()=>void};
@@ -19,7 +19,7 @@ const UniverseHome=forwardRef<UniverseHomeHandle,Props>(function UniverseHome(pr
  const [formed,setFormed]=useState(false),[failed,setFailed]=useState(false),[menu,setMenu]=useState(false),[hint,setHint]=useState(true),[retry,setRetry]=useState(0),[layer,setLayer]=useState('universe'),[focus,setFocus]=useState<SpaceFocus|null>(null),[introVisible,setIntroVisible]=useState(false),[handoff,setHandoff]=useState(false),[collectionStage,setCollectionStage]=useState<'none'|'approach'|'collection'|'return'>('none');
  const [unsupportedPlanetVersions,setUnsupportedPlanetVersions]=useState<{galaxy:string;name:string;version:number}[]>([]);
  useImperativeHandle(ref,()=>({exitCollection:()=>{const started=scene.current?.exitCollection()||false;if(started)setCollectionStage('return');return started;},presentCollection:id=>scene.current?.presentCollection(id)||false}),[]);
- useNativeBack(20,()=>{if(!props.active)return false;if(menu){setMenu(false);return true;}return scene.current?.back()||false;});
+ useNativeBack(20,()=>{if(!shouldUniverseHandleBack(props.active,collectionStage))return false;if(menu){setMenu(false);return true;}return scene.current?.back()||false;});
  useLayoutEffect(()=>{
   if(!canvas.current||!introCanvas.current)return;let instance:UniverseScene|undefined,opening:UniverseIntroScene|undefined,handoffTimer=0,disposed=false,universeFrameReady=false,handoffRequested=false;const intro=hasFormed.current?'none':latest.current.introMode;
   const fail=()=>{if(disposed)return;setFailed(true);setIntroVisible(false);};

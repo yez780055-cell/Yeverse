@@ -7,6 +7,10 @@ const output=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.
 const directory='.test-runtime/state-tests/lib/universe';
 mkdirSync(directory,{recursive:true});
 writeFileSync(`${directory}/flowState.js`,output);
+const backPriority=readFileSync('lib/platform/backPriority.ts','utf8');
+const backOutput=ts.transpileModule(backPriority,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
+mkdirSync('.test-runtime/state-tests/lib/platform',{recursive:true});
+writeFileSync('.test-runtime/state-tests/lib/platform/backPriority.js',backOutput);
 writeFileSync('.test-runtime/state-tests/package.json','{"type":"module"}');
 const result=spawnSync(process.execPath,['--test','tests/universe-flow.test.mjs'],{stdio:'inherit'});
 if(result.error)throw result.error;

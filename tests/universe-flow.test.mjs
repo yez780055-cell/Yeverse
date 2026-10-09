@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {collectionCloseAction,collectionStageFromUniverse,isIntroHandoffReady,planetActivationAction} from '../.test-runtime/state-tests/lib/universe/flowState.js';
+import {collectionCloseAction,collectionStageFromUniverse,isIntroHandoffReady,planetActivationAction,shouldUniverseHandleBack} from '../.test-runtime/state-tests/lib/universe/flowState.js';
+import {runBackHandlers} from '../.test-runtime/state-tests/lib/platform/backPriority.js';
 
 test('the first activation focuses a planet and the second activation opens that same planet',()=>{
  assert.equal(planetActivationAction(undefined,'p-1'),'focus');
@@ -32,4 +33,49 @@ test('collection close actions dismiss the topmost layer before leaving the coll
  const expected=['photo','inspect','editing','settings','expanded','archive','collection'];
  for(const action of expected){assert.equal(collectionCloseAction(state),action);state[action==='collection'?'selected':action]=false;}
  assert.equal(collectionCloseAction(state),'none');
+});
+
+test('Universe yields Native Back throughout the Collection approach, visible, and return stages',()=>{
+ for(const stage of ['approach','collection','return'])assert.equal(shouldUniverseHandleBack(true,stage),false,`${stage} must yield to CollectionApp`);
+});
+
+test('Universe may handle Native Back when active and no Collection transition is open',()=>{
+ assert.equal(shouldUniverseHandleBack(true,'none'),true);
+ assert.equal(shouldUniverseHandleBack(false,'none'),false);
+});
+
+test('CollectionApp closes expanded and archive layers after Universe yields',()=>{
+ for(const state of [
+  {photo:false,inspect:false,editing:false,settings:false,expanded:true,archive:true,selected:true},
+  {photo:false,inspect:false,editing:false,settings:false,expanded:false,archive:true,selected:true},
+ ]){
+  const calls=[];
+  const consumed=runBackHandlers([
+   {priority:20,run:()=>{if(!shouldUniverseHandleBack(true,'collection'))return false;calls.push('universe');return true;}},
+   {priority:10,run:()=>{const action=collectionCloseAction(state);if(action==='expanded'||action==='archive'){calls.push(`collection:${action}`);return true;}return false;}},
+  ]);
+  assert.equal(consumed,true);
+  assert.deepEqual(calls,[`collection:${state.expanded?'expanded':'archive'}`]);
+ }
+});
+
+test('after Collection exit completes, Native Back reaches normal Universe navigation',()=>{
+ const stage=collectionStageFromUniverse('exited'),calls=[];
+ const consumed=runBackHandlers([
+  {priority:20,run:()=>{if(!shouldUniverseHandleBack(true,stage))return false;calls.push('universe');return true;}},
+  {priority:10,run:()=>{calls.push('collection-app');return false;}},
+ ]);
+ assert.equal(stage,'none');
+ assert.equal(consumed,true);
+ assert.deepEqual(calls,['universe']);
+});
+
+test('the Universe menu still consumes Back before scene navigation when no Collection is open',()=>{
+ const calls=[],menuOpen=true;
+ const consumed=runBackHandlers([
+  {priority:20,run:()=>{if(!shouldUniverseHandleBack(true,'none'))return false;if(menuOpen){calls.push('close-menu');return true;}calls.push('scene-back');return true;}},
+  {priority:10,run:()=>{calls.push('collection-app');return false;}},
+ ]);
+ assert.equal(consumed,true);
+ assert.deepEqual(calls,['close-menu']);
 });

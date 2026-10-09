@@ -1,4 +1,9 @@
 export type IntroMode = 'full' | 'quick' | 'none';
+export type UniverseCollectionStage = 'none' | 'approach' | 'collection' | 'return';
+
+export function shouldUniverseHandleBack(active: boolean, collectionStage: UniverseCollectionStage): boolean {
+  return active && collectionStage === 'none';
+}
 
 export type CollectionCloseState = {
   photo: boolean;
