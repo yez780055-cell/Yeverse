@@ -29,6 +29,7 @@ yarn-error.log*
 # typescript
 /tsconfig.tsbuildinfo
 /dist/
+/dist-preview/
 /.wrangler/
 # Checkout-local execution profile and tool state; never publish them.
 /.test-runtime/

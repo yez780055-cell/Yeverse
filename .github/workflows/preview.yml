@@ -51,7 +51,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: dist
+          path: dist-preview
 
   deploy:
     if: github.ref == 'refs/heads/wip/universe-6-1a'
