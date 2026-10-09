@@ -153,7 +153,7 @@ export class UniverseScene {
   this.core=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(textureCanvas),transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));this.scene.add(this.core);
   // Keep the richer painted DIGITAL cloud when available; every other named
   // galaxy already has its own procedural cloud, so no galaxy depends on it.
-  const finishEmission=()=>{if(this.emissionReady)return;this.emissionReady=true;clearTimeout(this.emissionTimeout);if(this.completed&&!this.firstFrame)this.tick(performance.now());};
+  const finishEmission=()=>{if(this.emissionReady)return;this.emissionReady=true;clearTimeout(this.emissionTimeout);if(this.completed&&!this.firstFrame)this.schedule();};
   this.emissionTimeout=window.setTimeout(finishEmission,2000);new THREE.TextureLoader().load('/universe/spiral-emission.webp',texture=>{if(this.disposed){texture.dispose();return;}const mayReplace=!this.firstFrame||this.introMode!=='none'&&this.clock<this.handoffTime;if(mayReplace){texture.colorSpace=THREE.SRGBColorSpace;this.texture=texture;const hero=this.galaxyClouds.find(x=>x.galaxy.category==='数码');if(hero){hero.mesh.material.map=texture;hero.mesh.material.needsUpdate=true;}}else texture.dispose();finishEmission();},undefined,finishEmission);
   for(const g of this.galaxies)if(g.profile){const system=new GalaxySystem(this.scene,items.filter(item=>item.category===g.category),g.profile);this.systems.set(g.id,system);this.unsupportedPlanetVersions.push(...system.unsupportedGenerators.map(({item,version})=>({galaxy:g.name||g.category||g.id,name:item.name||item.id,version})));}
   if(this.completed){this.camera.position.copy(this.home);this.camera.quaternion.copy(this.homeRotation);this.core.visible=false;}
