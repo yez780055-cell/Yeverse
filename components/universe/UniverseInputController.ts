@@ -28,8 +28,8 @@ export class UniverseInputController {
   this.canvas=canvas;
   this.callbacks=callbacks;
   this.now=now;
-  const controller=this;
-  this.pointerState=Object.freeze({get size(){return controller.pointers.size;}});
+  const pointerState=Object.defineProperty({} as {size:number},'size',{get:()=>this.pointers.size});
+  this.pointerState=Object.freeze(pointerState);
  }
 
  attach(){
