@@ -39,12 +39,18 @@ function valid(v:unknown):v is GalaxyProfile{return Boolean(v&&typeof v==='objec
 export function readSavedGalaxyProfiles():GalaxyProfile[]{const raw=localStorage.getItem(STORAGE_KEY);if(!raw)return[];const parsed=JSON.parse(raw);if(!Array.isArray(parsed))throw new Error('本地星系配置格式无效');return parsed.filter(valid);}
 export function replaceSavedGalaxyProfiles(profiles:GalaxyProfile[]){if(!Array.isArray(profiles)||!profiles.every(valid))throw new Error('星系配置格式无效');localStorage.setItem(STORAGE_KEY,JSON.stringify(profiles));}
 
+export function resolveGalaxyProfiles(categories:string[],saved:GalaxyProfile[]){
+ const byCategory=new Map(saved.map(x=>[x.category,x]));
+ const profiles=categories.map((category,index)=>{const prior=byCategory.get(category),fresh=createProfile(category,index);if(!prior)return fresh;if((prior.layoutVersion||0)>=LAYOUT_VERSION)return prior;return {...fresh,name:prior.name||fresh.name,starName:prior.starName||fresh.starName,palette:prior.palette||fresh.palette};});
+ const active=new Set(categories);
+ return {profiles,savedProfiles:[...profiles,...saved.filter(x=>!active.has(x.category))]};
+}
+
 export function loadGalaxyProfiles(categories:string[]):GalaxyProfileLoadResult{
  let saved:GalaxyProfile[];
  try{saved=readSavedGalaxyProfiles();}catch(cause){return {profiles:categories.map(createProfile),issue:{stage:'read',cause}};}
- const byCategory=new Map(saved.map(x=>[x.category,x]));const profiles=categories.map((category,index)=>{const prior=byCategory.get(category),fresh=createProfile(category,index);if(!prior)return fresh;if((prior.layoutVersion||0)>=LAYOUT_VERSION)return prior;return {...fresh,name:prior.name||fresh.name,starName:prior.starName||fresh.starName,palette:prior.palette||fresh.palette};});
- const active=new Set(categories);let issue:GalaxyProfileLoadIssue|null=null;try{replaceSavedGalaxyProfiles([...profiles,...saved.filter(x=>!active.has(x.category))]);}catch(cause){issue={stage:'write',cause};}
- return {profiles,issue};
+ const resolved=resolveGalaxyProfiles(categories,saved);let issue:GalaxyProfileLoadIssue|null=null;try{replaceSavedGalaxyProfiles(resolved.savedProfiles);}catch(cause){issue={stage:'write',cause};}
+ return {profiles:resolved.profiles,issue};
 }
 
 export function saveGalaxyProfiles(profiles:GalaxyProfile[]){try{replaceSavedGalaxyProfiles(profiles);}catch{}}

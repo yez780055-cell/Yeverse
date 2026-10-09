@@ -2,6 +2,7 @@ import {Capacitor, registerPlugin, SystemBars} from '@capacitor/core';
 import {App} from '@capacitor/app';
 import {Directory, Encoding, Filesystem} from '@capacitor/filesystem';
 import {useEffect, useRef} from 'react';
+import {runBackHandlers} from './backPriority';
 export const isNative = Capacitor.isNativePlatform();
 const Documents = registerPlugin<{saveBackup(options:{path:string;name:string}):Promise<{cancelled:boolean}>}>('CollectionDocuments');
 const backHandlers = new Map<symbol,{priority:number;run:()=>boolean}>();
@@ -13,7 +14,7 @@ export function initializeNative(){
   if(!isNative)return;
   document.documentElement.classList.add('native-app');
   void App.addListener('backButton',()=>{
-    for(const h of [...backHandlers.values()].sort((a,b)=>b.priority-a.priority))if(h.run())return;
+    if(runBackHandlers([...backHandlers.values()]))return;
     void App.minimizeApp();
   });
   void App.addListener('appStateChange',({isActive})=>document.dispatchEvent(new CustomEvent('native-visibility',{detail:isActive})));

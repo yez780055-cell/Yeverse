@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {loadGalaxyProfiles} from '../.sites-runtime/storage-tests/lib/universe/galaxyProfiles.js';
+import {resolveGalaxyProfiles} from '../.sites-runtime/storage-tests/lib/universe/galaxyProfiles.js';
 import {saveUniverseIntroMode} from '../.sites-runtime/storage-tests/components/universe/preferences.js';
 
 const PROFILE_KEY='yezi-galaxy-profiles-v1';
@@ -39,6 +40,15 @@ test('Galaxy Profile write failures are returned to the application while profil
  assert.equal(result.issue?.stage,'write');
  assert.equal(result.profiles[0].category,'数码');
  assert.equal(storage.writes,1);
+});
+
+test('pure Galaxy Profile resolution retains customized active and inactive profiles',()=>{
+ const custom={id:'custom-digital',category:'数码',name:'My Digital',starName:'My Star',position:[1,2,3],radius:32,shape:'spiral',arms:4,tilt:[0,0,0],seed:7,palette:{primary:'#112233',secondary:'#223344',accent:'#334455',dust:'#445566',starCore:'#556677'},layoutVersion:3};
+ const inactive={...custom,id:'inactive',category:'旧分类',name:'Old',starName:'Old Star'};
+ const result=resolveGalaxyProfiles(['数码','新分类'],[custom,inactive]);
+ assert.equal(result.profiles[0].name,'My Digital');
+ assert.equal(result.profiles[1].category,'新分类');
+ assert.deepEqual(result.savedProfiles.map(profile=>profile.category),['数码','新分类','旧分类']);
 });
 
 test('Intro preference save reports success and persists the selected mode',()=>{
