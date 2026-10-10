@@ -3,7 +3,7 @@ import {SoftwareUniverseRenderer} from './softwareRenderer';
 import {random,clamp,ease, type Galaxy} from './galaxies';
 import type {UniverseIntroMode} from './preferences';
 import {GalaxySystem,type GalaxyObject,type GalaxyPlanet} from './PlanetSystem';
-import {collectionReturnContract,planetActivationAction,planetFocusBackAction} from '@/lib/universe/flowState';
+import {backNavigationAction,collectionReturnContract,focusBackAction,galaxyActivationAction,planetActivationAction,resetNavigationAction} from '@/lib/universe/flowState';
 import {publicAssetUrl} from '@/lib/assets/publicAssetUrl';
 import {UniverseInputController,type UniversePointerState} from './UniverseInputController';
 import {UniverseLabelProjector} from './UniverseLabelProjector';
@@ -223,8 +223,9 @@ export class UniverseScene {
  private galaxyDescription(g:Galaxy){const descriptions:Record<string,string>={数码:'由精密器物与技术记忆构成。',游戏:'收藏那些被亲自走过的虚拟世界。',书籍:'文字、思想与阅读时刻在此运行。'};return descriptions[g.category||'']||`收藏着${g.category||'重要'}记忆的私人星系。`;}
  private beginFocus(kind:'galaxy'|'planet',id:string,end:THREE.Vector3,lookAt:THREE.Vector3,returning=false){this.velocity.set(0,0);this.turnVelocity.set(0,0);const rotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(end,lookAt,new THREE.Vector3(0,1,0)));this.focusFlight={kind,id,start:this.camera.position.clone(),end,startRotation:this.camera.quaternion.clone(),rotation,time:0,returning};}
  enter=(g:Galaxy)=>{
-  if(!this.completed||this.flying||this.planetFlight||this.focusFlight)return;
-  if(this.focusedGalaxy===g.id){this.enterFocusedGalaxy(g);return;}
+   const action=galaxyActivationAction({focusedGalaxyId:this.focusedGalaxy,clickedGalaxyId:g.id,completed:this.completed,galaxyFlight:Boolean(this.flying),planetFlight:Boolean(this.planetFlight),focusFlight:Boolean(this.focusFlight)});
+   if(action==='blocked')return;
+   if(action==='enter'){this.enterFocusedGalaxy(g);return;}
   if(!this.universeFocusHome)this.universeFocusHome={position:this.camera.position.clone(),rotation:this.camera.quaternion.clone()};
   const center=new THREE.Vector3(...g.position),direction=this.camera.position.clone().sub(center).normalize(),end=center.clone().addScaledVector(direction,Math.max(42,g.radius*2.35));
   this.focusedGalaxy=g.id;this.onFocus(g.name?{kind:'galaxy',id:g.id,title:g.name,description:this.galaxyDescription(g),meta:`${this.systems.get(g.id)?.planets.length||0} 件藏品`}:null);this.beginFocus('galaxy',g.id,end,center);
@@ -237,13 +238,45 @@ export class UniverseScene {
   this.flying={start:this.camera.position.clone(),end,startRotation:this.camera.quaternion.clone(),rotation,time:0,galaxy:g,returning:false};
  }
  private enterGalaxy(galaxy:Galaxy,system:GalaxySystem){this.mode=galaxy.id;this.flying=undefined;this.target.copy(this.camera.position);const e=new THREE.Euler().setFromQuaternion(this.camera.quaternion,'YXZ');this.pitch=e.x;this.yaw=e.y;system.setVisible(true);system.setOpacity(1);system.update(performance.now());this.onMode(galaxy.id);}
- enterPlanet=(id:string)=>{const system=this.systems.get(this.mode);if(!system||this.planetFlight||this.focusFlight)return;const planet=system.planets.find(p=>p.item.id===id);if(!planet)return;if(planetActivationAction(this.focusedPlanet,id)==='open'){this.openFocusedPlanet(planet);return;}if(!this.systemFocusHome)this.systemFocusHome={position:this.camera.position.clone(),rotation:this.camera.quaternion.clone()};if(!this.focusedPlanet)this.planetFocusTime=performance.now();this.focusedPlanet=id;system.update(this.planetFocusTime,id);const center=planet.root.getWorldPosition(new THREE.Vector3()),direction=this.camera.position.clone().sub(center).normalize(),end=center.clone().addScaledVector(direction,planet.size*8.4);this.onFocus({kind:'planet',id,title:planet.item.name,description:planet.item.subtitle||'一件被认真留下的藏品。',meta:`${planet.item.date} · ${planet.item.category}`});this.beginFocus('planet',id,end,center);};
+  enterPlanet=(id:string)=>{
+   const system=this.systems.get(this.mode);if(!system)return;
+   const action=planetActivationAction(this.focusedPlanet,id,Boolean(this.planetFlight||this.focusFlight));
+   if(action==='blocked')return;
+   const planet=system.planets.find(p=>p.item.id===id);if(!planet)return;
+   if(action==='open'){this.openFocusedPlanet(planet);return;}
+   if(!this.systemFocusHome)this.systemFocusHome={position:this.camera.position.clone(),rotation:this.camera.quaternion.clone()};
+   if(!this.focusedPlanet)this.planetFocusTime=performance.now();this.focusedPlanet=id;system.update(this.planetFocusTime,id);
+   const center=planet.root.getWorldPosition(new THREE.Vector3()),direction=this.camera.position.clone().sub(center).normalize(),end=center.clone().addScaledVector(direction,planet.size*8.4);
+   this.onFocus({kind:'planet',id,title:planet.item.name,description:planet.item.subtitle||'一件被认真留下的藏品。',meta:`${planet.item.date} · ${planet.item.category}`});this.beginFocus('planet',id,end,center);
+  };
  private openFocusedPlanet(planet:GalaxyPlanet){const returnContract=collectionReturnContract('universe-planet',Boolean(this.systemFocusHome));if(!returnContract.planetDismissAnchor)this.systemFocusHome=undefined;const center=planet.root.getWorldPosition(new THREE.Vector3()),direction=this.camera.position.clone().sub(center).normalize(),extent=planet.size*(planet.profile.rings?.outerRadius||1.12),distance=Math.max(planet.size*2.15,extent*1.58),end=center.clone().addScaledVector(direction,distance),right=new THREE.Vector3(1,0,0).applyQuaternion(this.camera.quaternion),up=new THREE.Vector3(0,1,0).applyQuaternion(this.camera.quaternion),lookAt=center.clone().addScaledVector(right,this.w>700?-planet.size*.34:0).addScaledVector(up,planet.size*.12),rotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(end,lookAt,new THREE.Vector3(0,1,0)));this.collectionHome={position:this.camera.position.clone(),rotation:this.camera.quaternion.clone()};this.collectionProgress=0;this.onFocus(null);this.onOpenPlanet(planet.item.id);this.onCollectionStage('approach',planet.item.id);this.planetFlight={start:this.camera.position.clone(),end,startRotation:this.camera.quaternion.clone(),rotation,time:0,planet,returning:false};}
  exitCollection=()=>{const current=this.planetFlight;if(!current)return false;if(current.returning)return true;this.planetFlight={start:this.camera.position.clone(),end:this.collectionHome.position.clone(),startRotation:this.camera.quaternion.clone(),rotation:this.collectionHome.rotation.clone(),time:0,planet:current.planet,returning:true};return true;};
  presentCollection=(id:string)=>{let system:GalaxySystem|undefined,planet:GalaxyPlanet|undefined,systemId='';for(const [key,candidate] of this.systems){const found=candidate.planets.find(p=>p.item.id===id);if(found){system=candidate;planet=found;systemId=key;break;}}if(!system||!planet)return false;const returnContract=collectionReturnContract('index-timeline',Boolean(this.systemFocusHome));if(!returnContract.planetDismissAnchor)this.systemFocusHome=undefined;for(const candidate of this.systems.values()){candidate.setVisible(candidate===system);candidate.setOpacity(candidate===system?1:0);}this.mode=systemId;this.focusedGalaxy=undefined;this.focusedPlanet=id;this.planetFocusTime=performance.now();system.update(this.planetFocusTime,id,performance.now());const center=planet.root.getWorldPosition(new THREE.Vector3()),direction=new THREE.Vector3(0,0,1).applyQuaternion(this.homeRotation).normalize(),focusPosition=center.clone().addScaledVector(direction,planet.size*8.4),focusRotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(focusPosition,center,new THREE.Vector3(0,1,0))),extent=planet.size*(planet.profile.rings?.outerRadius||1.12),end=center.clone().addScaledVector(direction,Math.max(planet.size*2.15,extent*1.58)),right=new THREE.Vector3(1,0,0).applyQuaternion(focusRotation),lookAt=center.clone().addScaledVector(right,this.w>700?-planet.size*.34:0).add(new THREE.Vector3(0,planet.size*.12,0)),rotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(end,lookAt,new THREE.Vector3(0,1,0)));this.collectionHome={position:focusPosition,rotation:focusRotation};this.collectionProgress=1;this.camera.position.copy(end);this.camera.quaternion.copy(rotation);this.target.copy(end);this.planetFlight={start:end.clone(),end:end.clone(),startRotation:rotation.clone(),rotation,time:2,planet,returning:false,entered:true};this.onMode(systemId);this.onFocus(null);this.onCollectionStage('entered',id);this.schedule();return true;};
- private cancelFocus(){if(this.focusFlight?.returning)return true;if(this.focusFlight)this.focusFlight=undefined;if(planetFocusBackAction(Boolean(this.focusedPlanet),Boolean(this.systemFocusHome))==='dismiss-planet-focus'){const home=this.systemFocusHome!;this.focusedPlanet=undefined;this.systemFocusHome=undefined;this.onFocus(null);this.beginFocus('planet','',home.position,home.position.clone().add(new THREE.Vector3(0,0,-1).applyQuaternion(home.rotation)),true);return true;}if(this.focusedGalaxy&&this.universeFocusHome){const home=this.universeFocusHome;this.focusedGalaxy=undefined;this.universeFocusHome=undefined;this.onFocus(null);this.beginFocus('galaxy','',home.position,home.position.clone().add(new THREE.Vector3(0,0,-1).applyQuaternion(home.rotation)),true);return true;}return false;}
- back=()=>{if(this.cancelFocus())return true;if(this.mode!=='universe'){this.reset();return true;}return false;};
- reset=()=>{this.velocity.set(0,0);this.turnVelocity.set(0,0);if(this.cancelFocus())return;const system=this.systems.get(this.mode);if(system){const galaxy=this.galaxies.find(g=>g.id===this.mode)!;this.mode='universe';this.focusedPlanet=undefined;this.systemFocusHome=undefined;this.onFocus(null);system.setOpacity(0);system.setVisible(false);this.flying={start:this.camera.position.clone(),end:this.home.clone(),startRotation:this.camera.quaternion.clone(),rotation:this.homeRotation.clone(),time:0,galaxy,returning:true};this.onMode('universe');return;}this.flying=undefined;this.focusedGalaxy=undefined;this.universeFocusHome=undefined;this.onFocus(null);const homeEuler=new THREE.Euler().setFromQuaternion(this.homeRotation,'YXZ');this.pitch=homeEuler.x;this.yaw=homeEuler.y;this.target.copy(this.home);this.notifySafeRebuildPoint();};
+  private cancelFocus(){
+   const action=focusBackAction({returningFocusFlight:Boolean(this.focusFlight?.returning),focusedPlanet:Boolean(this.focusedPlanet),hasPlanetDismissAnchor:Boolean(this.systemFocusHome),focusedGalaxy:Boolean(this.focusedGalaxy),hasGalaxyDismissAnchor:Boolean(this.universeFocusHome)});
+   if(action==='consume-returning-transition')return true;
+   if(this.focusFlight)this.focusFlight=undefined;
+   if(action==='dismiss-planet-focus'){
+    const home=this.systemFocusHome!;this.focusedPlanet=undefined;this.systemFocusHome=undefined;this.onFocus(null);
+    this.beginFocus('planet','',home.position,home.position.clone().add(new THREE.Vector3(0,0,-1).applyQuaternion(home.rotation)),true);return true;
+   }
+   if(action==='dismiss-galaxy-focus'){
+    const home=this.universeFocusHome!;this.focusedGalaxy=undefined;this.universeFocusHome=undefined;this.onFocus(null);
+    this.beginFocus('galaxy','',home.position,home.position.clone().add(new THREE.Vector3(0,0,-1).applyQuaternion(home.rotation)),true);return true;
+   }
+   return false;
+  }
+  back=()=>{if(this.cancelFocus())return true;if(backNavigationAction(this.mode)==='reset'){this.reset();return true;}return false;};
+  reset=()=>{
+   this.velocity.set(0,0);this.turnVelocity.set(0,0);if(this.cancelFocus())return;
+   const system=this.systems.get(this.mode);
+   if(resetNavigationAction(Boolean(system))==='return-to-universe'&&system){
+    const galaxy=this.galaxies.find(g=>g.id===this.mode)!;this.mode='universe';this.focusedPlanet=undefined;this.systemFocusHome=undefined;this.onFocus(null);system.setOpacity(0);system.setVisible(false);
+    this.flying={start:this.camera.position.clone(),end:this.home.clone(),startRotation:this.camera.quaternion.clone(),rotation:this.homeRotation.clone(),time:0,galaxy,returning:true};this.onMode('universe');return;
+   }
+   this.flying=undefined;this.focusedGalaxy=undefined;this.universeFocusHome=undefined;this.onFocus(null);
+   const homeEuler=new THREE.Euler().setFromQuaternion(this.homeRotation,'YXZ');this.pitch=homeEuler.x;this.yaw=homeEuler.y;this.target.copy(this.home);this.notifySafeRebuildPoint();
+  };
  private travel=(amount:number)=>{this.target.addScaledVector(this.camera.getWorldDirection(new THREE.Vector3()),clamp(amount,-75,75));this.target.clampLength(0,1000);};
  private birthPhase():UniverseState['phase']{if(this.completed){if(this.planetFlight)return this.planetFlight.returning?'collection-return':this.planetFlight.entered?'collection':'collection-approach';return this.flying||this.focusFlight?'flight':'explore';}if(this.clock<this.baselineDuration*.18)return'singularity';if(this.clock<this.handoffTime*.82)return'explosion';if(this.clock<this.handoffTime)return'deep-space';return'formation';}
  skip=()=>{this.clock=Math.max(this.clock,this.duration-(this.introMode==='quick'?.22:.65));};
