@@ -9,6 +9,7 @@ import {useNativeBack} from '@/lib/platform/native';
 import type {UniverseIntroMode} from './preferences';
 import type {GalaxyObject} from './PlanetSystem';
 import {carryStartupElapsed,collectionStageFromUniverse,isCurrentSceneRevision,isIntroHandoffReady,startupSceneRebuildAction,shouldUniverseHandleBack} from '@/lib/universe/flowState';
+import {canRevealNoneStartupPresentation} from '@/lib/universe/startupPresentation';
 
 export type UniverseHomeHandle={exitCollection:()=>boolean;presentCollection:(id:string)=>boolean};
 type Props={active:boolean;renderActive:boolean;ready:boolean;introMode:UniverseIntroMode;profiles:GalaxyProfile[];items:GalaxyObject[];generationKey:string;onOpen:(id:string)=>void;onDetailStage:(stage:'approach'|'entered'|'exited',id:string)=>void;onCategory:(c:Category)=>void;onIndex:()=>void;onTimeline:()=>void;onAdd:()=>void;onSettings:()=>void};
@@ -18,17 +19,20 @@ const UniverseHome=forwardRef<UniverseHomeHandle,Props>(function UniverseHome(pr
  latest.current=props;
  const galaxies=useMemo(()=>buildGalaxies(props.profiles),[props.profiles]);
  const [formed,setFormed]=useState(false),[failed,setFailed]=useState(false),[menu,setMenu]=useState(false),[hint,setHint]=useState(true),[retry,setRetry]=useState(0),[layer,setLayer]=useState('universe'),[focus,setFocus]=useState<SpaceFocus|null>(null),[introVisible,setIntroVisible]=useState(false),[handoff,setHandoff]=useState(false),[collectionStage,setCollectionStage]=useState<'none'|'approach'|'collection'|'return'>('none');
- const [sceneRevision,setSceneRevision]=useState(0),sceneStage=useRef(collectionStage),currentSceneInputs=useRef<SceneInputs>({generationKey:props.generationKey,galaxies,retry}),appliedSceneInputs=useRef<SceneInputs|null>(null);
+ const [sceneRevision,setSceneRevision]=useState(0),[noneStartupRevealed,setNoneStartupRevealed]=useState(props.introMode!=='none'),noneStartupRevealedRef=useRef(props.introMode!=='none'),sceneStage=useRef(collectionStage),currentSceneInputs=useRef<SceneInputs>({generationKey:props.generationKey,galaxies,retry}),appliedSceneInputs=useRef<SceneInputs|null>(null);
  sceneStage.current=collectionStage;currentSceneInputs.current={generationKey:props.generationKey,galaxies,retry};
  const requestSceneRebuild=useCallback(()=>{const applied=appliedSceneInputs.current;if(!applied)return;const next=currentSceneInputs.current,changed=applied.generationKey!==next.generationKey||applied.galaxies!==next.galaxies||applied.retry!==next.retry,atUniverseHome=scene.current?scene.current.isAtUniverseHome():sceneStage.current==='none',action=startupSceneRebuildAction(changed,hasFormed.current,sceneStage.current,atUniverseHome);if(action==='rebuild'){if(!hasFormed.current){startupElapsed.current=carryStartupElapsed(startupElapsed.current,scene.current?.snapshot().elapsed??0);if(handoffTimer.current!==null){window.clearTimeout(handoffTimer.current);handoffTimer.current=null;if(!introDisposedAfterHandoff.current)setHandoff(false);}}sceneGeneration.current+=1;firstFrameGeneration.current=null;appliedSceneInputs.current=next;setSceneRevision(value=>value+1);}},[]);
+ const revealNoneStartup=useCallback(()=>{if(noneStartupRevealedRef.current)return;const applied=appliedSceneInputs.current,next=currentSceneInputs.current,inputsCurrent=!!applied&&applied.generationKey===next.generationKey&&applied.galaxies===next.galaxies&&applied.retry===next.retry;if(!canRevealNoneStartupPresentation({repositoryReady:latest.current.ready,inputsCurrent,sceneCurrent:!!scene.current,sceneGeneration:sceneGeneration.current,firstFrameGeneration:firstFrameGeneration.current}))return;noneStartupRevealedRef.current=true;setNoneStartupRevealed(true);},[]);
  const [unsupportedPlanetVersions,setUnsupportedPlanetVersions]=useState<{galaxy:string;name:string;version:number}[]>([]);
  useImperativeHandle(ref,()=>({exitCollection:()=>{const started=scene.current?.exitCollection()||false;if(started){scene.current?.setRenderActive(true);setCollectionStage('return');}return started;},presentCollection:id=>scene.current?.presentCollection(id)||false}),[]);
  useNativeBack(20,()=>{if(!shouldUniverseHandleBack(props.active,collectionStage))return false;if(menu){setMenu(false);return true;}return scene.current?.back()||false;});
  useLayoutEffect(()=>{requestSceneRebuild();},[props.generationKey,galaxies,retry,collectionStage,requestSceneRebuild]);
+ useLayoutEffect(()=>{revealNoneStartup();},[props.ready,props.generationKey,galaxies,retry,sceneRevision,revealNoneStartup]);
  const beginHandoff=useCallback(()=>{
   handoffRequested.current=true;
   const intro=introModeRef.current,frameReady=firstFrameGeneration.current===sceneGeneration.current;
   if(introDisposedAfterHandoff.current||handoffTimer.current!==null||!isIntroHandoffReady({requested:true,universeFrameReady:frameReady,disposed:introEffectDisposed.current,introMode:intro}))return;
+  if(intro==='quick')scene.current?.lockQuickHeroTextureForHandoff();
   setHandoff(true);
   handoffTimer.current=window.setTimeout(()=>{
    handoffTimer.current=null;
@@ -51,11 +55,11 @@ const UniverseHome=forwardRef<UniverseHomeHandle,Props>(function UniverseHome(pr
   if(sceneGeneration.current===0)sceneGeneration.current=1;
   const generation=sceneGeneration.current,intro=hasFormed.current?'none':introModeRef.current;
   const fail=()=>{if(disposed)return;setFailed(true);setIntroVisible(false);};
-  const startUniverse=()=>{if(disposed||!canvas.current)return;try{const inputs=currentSceneInputs.current;appliedSceneInputs.current=inputs;const initialElapsed=hasFormed.current?0:startupElapsed.current;instance=new UniverseScene(canvas.current,labels.current,planetLabels.current,inputs.galaxies,latest.current.items,g=>{if(g.category)latest.current.onCategory(g.category);},id=>latest.current.onOpen(id),(stage,id)=>{setCollectionStage(collectionStageFromUniverse(stage));latest.current.onDetailStage(stage,id);},setLayer,setFocus,()=>{if(!isCurrentSceneRevision(generation,sceneGeneration.current,disposed)||scene.current!==instance)return;startupElapsed.current=0;hasFormed.current=true;setFormed(true);},()=>{if(!isCurrentSceneRevision(generation,sceneGeneration.current,disposed)||scene.current!==instance)return;firstFrameGeneration.current=generation;if(handoffRequested.current)beginHandoffRef.current();},fail,intro,requestSceneRebuild,initialElapsed);scene.current=instance;setUnsupportedPlanetVersions(instance.unsupportedPlanetVersions);instance.setReady(latest.current.ready);instance.setActive(latest.current.active);instance.setRenderActive(latest.current.renderActive);}catch{fail();}};
+  const startUniverse=()=>{if(disposed||!canvas.current)return;try{const inputs=currentSceneInputs.current;appliedSceneInputs.current=inputs;const initialElapsed=hasFormed.current?0:startupElapsed.current;instance=new UniverseScene(canvas.current,labels.current,planetLabels.current,inputs.galaxies,latest.current.items,g=>{if(g.category)latest.current.onCategory(g.category);},id=>latest.current.onOpen(id),(stage,id)=>{setCollectionStage(collectionStageFromUniverse(stage));latest.current.onDetailStage(stage,id);},setLayer,setFocus,()=>{if(!isCurrentSceneRevision(generation,sceneGeneration.current,disposed)||scene.current!==instance)return;startupElapsed.current=0;hasFormed.current=true;setFormed(true);},()=>{if(!isCurrentSceneRevision(generation,sceneGeneration.current,disposed)||scene.current!==instance)return;firstFrameGeneration.current=generation;revealNoneStartup();if(handoffRequested.current)beginHandoffRef.current();},fail,intro,requestSceneRebuild,initialElapsed);scene.current=instance;setUnsupportedPlanetVersions(instance.unsupportedPlanetVersions);instance.setReady(latest.current.ready);instance.setActive(latest.current.active);instance.setRenderActive(latest.current.renderActive);}catch{fail();}};
   setFailed(false);setFocus(null);setLayer('universe');setUnsupportedPlanetVersions([]);
   startUniverse();
   return()=>{disposed=true;if(!hasFormed.current&&instance)startupElapsed.current=carryStartupElapsed(startupElapsed.current,instance.snapshot().elapsed);if(scene.current===instance)scene.current=null;instance?.dispose();};
- },[sceneRevision,requestSceneRebuild]);
+ },[sceneRevision,requestSceneRebuild,revealNoneStartup]);
  useLayoutEffect(()=>{
   const instance=scene.current;
   if(instance?.refreshItemMetadata(props.items))setUnsupportedPlanetVersions([...instance.unsupportedPlanetVersions]);
@@ -68,6 +72,7 @@ const UniverseHome=forwardRef<UniverseHomeHandle,Props>(function UniverseHome(pr
  return <section className={`universe-home ${formed?'is-formed':''} ${props.active?'':'is-hidden'} ${collectionStage!=='none'?'is-collection':''}`} aria-label="私人宇宙" aria-hidden={!props.active}>
   <canvas key={sceneRevision} ref={canvas} className="universe-canvas" aria-label="拖动探索宇宙，双指缩放，轻触聚焦，再次轻触进入"/>
   <canvas ref={introCanvas} className={`universe-intro-canvas is-${props.introMode} ${introVisible?'is-visible':''} ${handoff?'is-handoff':''}`} aria-hidden="true"/>
+  {props.introMode==='none'&&!noneStartupRevealed&&<div className="universe-startup-cover" aria-hidden="true"/>}
   <div className="universe-labels" aria-hidden={!formed}>{galaxies.filter(g=>g.name).map(g=><button ref={el=>{if(el)labels.current.set(g.id,el);else labels.current.delete(g.id);}} key={g.id} className="galaxy-label" tabIndex={formed&&props.active?0:-1} aria-label={`进入 ${g.name} ${g.category}藏馆`} onClick={()=>scene.current?.enter(g)}><span className="galaxy-anchor"/><span className="galaxy-name">{g.name}</span><span className="galaxy-category">{g.category}</span></button>)}</div>
   {formed&&props.active&&collectionStage==='none'&&unsupportedPlanetVersions.length>0&&<aside className="planet-version-notice" role="status" aria-live="polite"><span>部分星球暂不可用</span><ul>{unsupportedPlanetVersions.map((entry,index)=><li key={`${entry.galaxy}-${entry.name}-${entry.version}-${index}`}>{entry.name} · {entry.galaxy} · V{entry.version}</li>)}</ul></aside>}
   <div className="planet-labels" aria-hidden={layer==='universe'}>{props.items.map(item=><button ref={el=>{if(el)planetLabels.current.set(item.id,el);else planetLabels.current.delete(item.id);}} key={item.id} className="planet-label" tabIndex={-1} aria-label={`查看藏品 ${item.name}`} onClick={()=>scene.current?.enterPlanet(item.id)}><b>{item.name}</b></button>)}</div>

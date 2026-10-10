@@ -40,6 +40,7 @@ test('Back leaves a Galaxy system through reset and remains unhandled at Univers
  assert.equal(resetNavigationAction(false),'reset-universe');
 });
 import {runBackHandlers} from '../.test-runtime/state-tests/lib/platform/backPriority.js';
+import {advanceIntroVisualClock,canRevealNoneStartupPresentation,chooseQuickIntroVisualAsset,shouldApplyUniverseHeroEmission,shouldUseQuickIntroEmission} from '../.test-runtime/state-tests/lib/universe/startupPresentation.js';
 
 test('the first activation focuses a planet and the second activation opens that same planet',()=>{
  assert.equal(planetActivationAction(undefined,'p-1'),'focus');
@@ -159,7 +160,7 @@ test('Intro remains mounted across startup Scene replacements and handoff waits 
  assert.match(introEffect,/opening\?\.dispose\(\);if\(introScene\.current===opening\)introScene\.current=null/);
  const sceneEffect=universeHomeSource.slice(universeHomeSource.indexOf('useLayoutEffect(()=>{\n  if(!canvas.current)'),universeHomeSource.indexOf(' },[sceneRevision,requestSceneRebuild]);'));
  assert.match(sceneEffect,/if\(!isCurrentSceneRevision\(generation,sceneGeneration\.current,disposed\)\|\|scene\.current!==instance\)return/);
- assert.match(sceneEffect,/firstFrameGeneration\.current=generation;if\(handoffRequested\.current\)beginHandoffRef\.current\(\)/);
+ assert.match(sceneEffect,/firstFrameGeneration\.current=generation;revealNoneStartup\(\);if\(handoffRequested\.current\)beginHandoffRef\.current\(\)/);
  assert.match(universeHomeSource,/firstFrameGeneration\.current===sceneGeneration\.current/);
  assert.match(universeHomeSource,/sceneGeneration\.current\+=1;firstFrameGeneration\.current=null/);
  assert.match(universeSceneSource,/this\.renderer\.render\(this\.scene,this\.camera\);if\(!this\.firstFrame\)/);
@@ -266,4 +267,52 @@ test('formation completion does not replace already-applied startup inputs, and 
  assert.match(completion,/this\.completed=true;[\s\S]*?this\.onReady\(\);/);
  assert.doesNotMatch(completion,/notifySafeRebuildPoint/,'initial completion does not run a deferred rebuild safe point');
  assert.match(universeHomeSource,/if\(!isCurrentSceneRevision\(generation,sceneGeneration\.current,disposed\)\|\|scene\.current!==instance\)return;startupElapsed\.current=0;hasFormed\.current=true;setFormed\(true\)/);
+});
+
+const universeCssSource=readFileSync('components/universe/universe.css','utf8');
+
+test('quick Intro caps stalled visual time while full retains real elapsed time',()=>{
+ assert.equal(advanceIntroVisualClock('quick',0,1.4),.05);
+ assert.equal(advanceIntroVisualClock('full',0,1.4),1.4);
+ let clock=0;const samples=[];
+ for(let i=0;i<20;i++){clock=advanceIntroVisualClock('quick',clock,1);samples.push(clock/2.3);}
+ assert.ok(samples.some(t=>t>0&&t<.24),'quick advances through multiple valid center core pulse frames');
+ assert.ok(samples.every((t,i)=>i===0||t-samples[i-1]<=.05/2.3+Number.EPSILON));
+ assert.match(introSceneSource,/const pulse=t<\.24\?ease\(t\/\.18\)/,'existing center pulse timing remains in use');
+});
+
+test('quick Intro locks painted or fallback emission before its first visible frame',()=>{
+ assert.equal(chooseQuickIntroVisualAsset(true),'painted');
+ assert.equal(chooseQuickIntroVisualAsset(false),'fallback');
+ assert.equal(shouldUseQuickIntroEmission('pending'),true,'preparation window accepts a ready texture');
+ assert.equal(shouldUseQuickIntroEmission('fallback'),false,'late image cannot change the current quick presentation');
+ assert.match(introSceneSource,/quickPreparationTimeout=window\.setTimeout\(\(\)=>this\.lockQuickVisualAsset\(false\),60\)/);
+ assert.match(introSceneSource,/this\.mode==='quick'&&!shouldUseQuickIntroEmission\(this\.quickVisualAsset\)\)\{texture\.dispose\(\);return;\}/);
+ assert.match(introSceneSource,/this\.clock=advanceIntroVisualClock\(this\.mode,this\.clock,elapsed\)/);
+});
+
+test('Universe hero emission cannot replace the selected quick texture after handoff begins',()=>{
+ const base={disposed:false,firstFrame:true,introMode:'quick',beforeHandoff:false,quickHandoffLocked:true};
+ assert.equal(shouldApplyUniverseHeroEmission(base),false);
+ assert.equal(shouldApplyUniverseHeroEmission({...base,quickHandoffLocked:false,beforeHandoff:true}),true);
+ assert.equal(shouldApplyUniverseHeroEmission({...base,introMode:'full',quickHandoffLocked:false,beforeHandoff:true}),true,'full remains unchanged before its handoff boundary');
+ assert.equal(shouldApplyUniverseHeroEmission({...base,introMode:'full',quickHandoffLocked:true,beforeHandoff:false}),false);
+ assert.match(universeHomeSource,/if\(intro==='quick'\)scene\.current\?\.lockQuickHeroTextureForHandoff\(\)/);
+ assert.match(universeSceneSource,/quickHandoffLocked:this\.quickHeroTextureLocked/);
+});
+
+test('none startup cover stays until repository, inputs, and latest Scene frame are ready',()=>{
+ const ready={repositoryReady:true,inputsCurrent:true,sceneCurrent:true,sceneGeneration:3,firstFrameGeneration:3};
+ assert.equal(canRevealNoneStartupPresentation(ready),true);
+ assert.equal(canRevealNoneStartupPresentation({...ready,repositoryReady:false}),false);
+ assert.equal(canRevealNoneStartupPresentation({...ready,inputsCurrent:false}),false,'structural replacement keeps the cover');
+ assert.equal(canRevealNoneStartupPresentation({...ready,firstFrameGeneration:2}),false,'stale Scene cannot reveal');
+ assert.equal(canRevealNoneStartupPresentation({...ready,sceneCurrent:false}),false,'disposed Scene cannot reveal');
+ let revealed=false,revealCount=0;
+ const reveal=()=>{if(!revealed&&canRevealNoneStartupPresentation(ready)){revealed=true;revealCount++;}};
+ reveal();reveal();assert.equal(revealCount,1,'the cover is removed once');
+ assert.match(universeHomeSource,/noneStartupRevealedRef\.current=true;setNoneStartupRevealed\(true\)/);
+ assert.match(universeHomeSource,/firstFrameGeneration\.current=generation;revealNoneStartup\(\)/);
+ assert.match(universeHomeSource,/className="universe-startup-cover"/);
+ assert.match(universeCssSource,/\.universe-startup-cover\{[^}]*background:#000;[^}]*transition:none/);
 });

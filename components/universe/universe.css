@@ -6,6 +6,7 @@
 .universe-intro-canvas.is-visible{visibility:visible;opacity:1}
 .universe-intro-canvas.is-handoff{opacity:0;transition:opacity .95s cubic-bezier(.4,0,.2,1)}
 .universe-intro-canvas.is-quick.is-handoff{transition-duration:.28s}
+.universe-startup-cover{position:absolute;inset:0;z-index:4;background:#000;pointer-events:none;transition:none}
 .universe-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
 .galaxy-label{position:absolute;top:0;left:0;width:110px;height:76px;margin:16px 0 0 -55px;padding:0;border:0;background:transparent;color:#d6dae5;text-align:center;opacity:0;transition:opacity .65s;will-change:transform;cursor:pointer;text-shadow:0 2px 12px #000,0 1px 4px #000}
 .galaxy-anchor{display:block;width:1px;height:17px;margin:0 auto 8px;background:linear-gradient(transparent,#b4bac86b)}
