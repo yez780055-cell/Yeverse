@@ -9,6 +9,9 @@ import {UniverseInputController,type UniversePointerState} from './UniverseInput
 import {UniverseLabelProjector} from './UniverseLabelProjector';
 import {focusTransitionDuration,galaxyFlightDuration,planetFlightDuration,sampleCameraTransition} from '@/lib/universe/cameraTransition';
 import {getGalaxyVisualScale,updateUniverseVisuals} from './UniverseVisualUpdater';
+import {canScheduleUniverseFrame,shouldContinueUniverseFrame,shouldQueueUniverseOneShot,shouldRequestUniverseFrameAfterResize} from '@/lib/universe/renderPolicy';
+import {canAcceptUniverseSpatialInput} from '@/lib/universe/spatialInputPolicy';
+import {shouldApplyUniverseHeroEmission} from '@/lib/universe/startupPresentation';
 
 const vertex = `
 attribute float aSize; attribute float aKind; attribute float aSeed;
@@ -118,11 +121,11 @@ export type SpaceFocus=
  | {kind:'planet';id:string;title:string;description:string;meta:string};
 export class UniverseScene {
  renderer:THREE.WebGLRenderer|SoftwareUniverseRenderer;scene=new THREE.Scene();camera=new THREE.PerspectiveCamera(58,1,.2,2200);
- private emissionReady=false;private emissionTimeout=0;private texture?:THREE.Texture;
+ private emissionReady=false;private emissionTimeout=0;private quickHeroTextureLocked=false;private texture?:THREE.Texture;
  private cloudGeometry=new THREE.PlaneGeometry(2,2);private galaxyClouds:{galaxy:Galaxy;mesh:THREE.Mesh<THREE.PlaneGeometry,THREE.MeshBasicMaterial>;texture:THREE.Texture}[]=[];
  private volumeCoreGeometry=new THREE.SphereGeometry(1,24,16);private volumeGlowTexture=coreGlowTexture();private galaxyVolumes:{galaxy:Galaxy;group:THREE.Group;inner:THREE.Mesh<THREE.PlaneGeometry,THREE.MeshBasicMaterial>;core:THREE.Mesh<THREE.SphereGeometry,THREE.MeshBasicMaterial>;halo:THREE.Sprite;innerMaterial:THREE.MeshBasicMaterial;coreMaterial:THREE.MeshBasicMaterial;haloMaterial:THREE.SpriteMaterial}[]=[];
  private materials:THREE.ShaderMaterial[]=[];private galaxyMaterials=new Map<string,THREE.ShaderMaterial>();private geometries:THREE.BufferGeometry[]=[];
- private clock=0;private last=0;private frame=0;private disposed=false;private active=true;private nativeActive=true;private ready=false;private reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+ private clock=0;private last=0;private frame:number|null=null;private disposed=false;private active=true;private renderActive=true;private oneShotRequested=false;private nativeActive=true;private ready=false;private reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
  private target=new THREE.Vector3();private velocity=new THREE.Vector2();private inputController!:UniverseInputController;private get pointers():UniversePointerState{return this.inputController.pointerState;}
  private yaw=0;private pitch=0;private homeRotation=new THREE.Quaternion();private turnVelocity=new THREE.Vector2();
  private flying?:{start:THREE.Vector3;end:THREE.Vector3;rotation:THREE.Quaternion;startRotation:THREE.Quaternion;time:number;galaxy:Galaxy;returning:boolean;entered?:boolean};private home=new THREE.Vector3();
@@ -133,7 +136,7 @@ export class UniverseScene {
  private collectionHome={position:new THREE.Vector3(),rotation:new THREE.Quaternion()};private collectionProgress=0;
  private focusFlight?:{kind:'galaxy'|'planet';id:string;start:THREE.Vector3;end:THREE.Vector3;startRotation:THREE.Quaternion;rotation:THREE.Quaternion;time:number;returning:boolean};
  private universeFocusHome?:{position:THREE.Vector3;rotation:THREE.Quaternion};private systemFocusHome?:{position:THREE.Vector3;rotation:THREE.Quaternion};private planetFocusTime=0;
- constructor(private canvas:HTMLCanvasElement,labels:Map<string,HTMLElement>,planetLabels:Map<string,HTMLElement>,galaxies:Galaxy[],items:GalaxyObject[],private onEnter:(g:Galaxy)=>void,private onOpenPlanet:(id:string)=>void,private onCollectionStage:(stage:'approach'|'entered'|'exited',id:string)=>void,private onMode:(mode:string)=>void,private onFocus:(focus:SpaceFocus|null)=>void,private onReady:()=>void,private onFirstFrame:()=>void,private onError:()=>void,private introMode:UniverseIntroMode,private onSafeRebuildPoint:()=>void){
+ constructor(private canvas:HTMLCanvasElement,labels:Map<string,HTMLElement>,planetLabels:Map<string,HTMLElement>,galaxies:Galaxy[],items:GalaxyObject[],private onEnter:(g:Galaxy)=>void,private onOpenPlanet:(id:string)=>void,private onCollectionStage:(stage:'approach'|'entered'|'exited',id:string)=>void,private onMode:(mode:string)=>void,private onFocus:(focus:SpaceFocus|null)=>void,private onReady:()=>void,private onFirstFrame:()=>void,private onError:()=>void,private introMode:UniverseIntroMode,private onSafeRebuildPoint:()=>void,initialElapsed=0){
   this.galaxies=galaxies;
   this.labelProjector=new UniverseLabelProjector(labels,planetLabels,this.galaxies,this.galaxyVisualScale.bind(this));
   const digital=this.galaxies.find(g=>g.category==='数码'),homeLookAt=new THREE.Vector3(...(digital?.position||[-36,18,-50]));
@@ -141,7 +144,7 @@ export class UniverseScene {
   const homeEuler=new THREE.Euler().setFromQuaternion(this.homeRotation,'YXZ');this.pitch=homeEuler.x;this.yaw=homeEuler.y;
   this.baselineDuration=this.reduced?.8:introMode==='full'?7.8:2.3;this.handoffTime=this.baselineDuration*.47;
   this.duration=this.reduced?.8:introMode==='full'?9.65:2.3;
-  this.completed=introMode==='none';
+  this.completed=introMode==='none';this.clock=this.completed?0:Math.max(0,initialElapsed);
   const low=(navigator.hardwareConcurrency||4)<=4;
   try{this.renderer=new THREE.WebGLRenderer({canvas,alpha:false,antialias:false,powerPreference:'low-power'});}catch{this.renderer=new SoftwareUniverseRenderer(canvas);}this.renderer.setClearColor(0x000000);this.renderer.setPixelRatio(Math.min(devicePixelRatio,low?1.25:1.7));
   for(const g of this.galaxies){
@@ -158,28 +161,30 @@ export class UniverseScene {
   this.core=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(textureCanvas),transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));this.scene.add(this.core);
   // Keep the richer painted DIGITAL cloud when available; every other named
   // galaxy already has its own procedural cloud, so no galaxy depends on it.
-  const finishEmission=()=>{if(this.emissionReady)return;this.emissionReady=true;clearTimeout(this.emissionTimeout);if(this.completed&&!this.firstFrame)this.schedule();};
-  this.emissionTimeout=window.setTimeout(finishEmission,2000);new THREE.TextureLoader().load(publicAssetUrl('/universe/spiral-emission.webp'),texture=>{if(this.disposed){texture.dispose();return;}const mayReplace=!this.firstFrame||this.introMode!=='none'&&this.clock<this.handoffTime;if(mayReplace){texture.colorSpace=THREE.SRGBColorSpace;this.texture=texture;const hero=this.galaxyClouds.find(x=>x.galaxy.category==='数码');if(hero){hero.mesh.material.map=texture;hero.mesh.material.needsUpdate=true;}}else texture.dispose();finishEmission();},undefined,finishEmission);
+  const finishEmission=()=>{if(this.emissionReady)return;this.emissionReady=true;clearTimeout(this.emissionTimeout);if(this.completed&&!this.firstFrame)this.requestOneShotFrame();};
+  this.emissionTimeout=window.setTimeout(finishEmission,2000);new THREE.TextureLoader().load(publicAssetUrl('/universe/spiral-emission.webp'),texture=>{if(this.disposed){texture.dispose();return;}const mayReplace=shouldApplyUniverseHeroEmission({disposed:this.disposed,firstFrame:this.firstFrame,introMode:this.introMode,beforeHandoff:this.clock<this.handoffTime,quickHandoffLocked:this.quickHeroTextureLocked});if(mayReplace){texture.colorSpace=THREE.SRGBColorSpace;this.texture=texture;const hero=this.galaxyClouds.find(x=>x.galaxy.category==='数码');if(hero){hero.mesh.material.map=texture;hero.mesh.material.needsUpdate=true;}}else texture.dispose();finishEmission();},undefined,finishEmission);
   for(const g of this.galaxies)if(g.profile){const system=new GalaxySystem(this.scene,items.filter(item=>item.category===g.category),g.profile);this.systems.set(g.id,system);this.unsupportedPlanetVersions.push(...system.unsupportedGenerators.map(({item,version})=>({galaxy:g.name||g.category||g.id,name:item.name||item.id,version})));}
   if(this.completed){this.camera.position.copy(this.home);this.camera.quaternion.copy(this.homeRotation);this.core.visible=false;}
   else this.camera.position.set(0,0,18);
   this.observer=new ResizeObserver(()=>this.resize());this.observer.observe(canvas);this.resize();
   this.inputController=new UniverseInputController(canvas,{
-   canStart:()=>this.completed&&!this.flying&&!this.planetFlight&&!this.focusFlight,
+   canStart:()=>this.canAcceptSpatialInput(),
    onPointerDown:()=>{this.velocity.set(0,0);this.turnVelocity.set(0,0);},
-   onDrag:(dx,dy)=>{this.yaw+=dx*.0022;this.pitch=clamp(this.pitch+dy*.0018,-1.45,1.45);this.target.add(new THREE.Vector3(-dx*.065,dy*.065,0).applyQuaternion(this.camera.quaternion));this.turnVelocity.set(dx*.045,dy*.036).clampLength(0,1.1);this.velocity.set(-dx*1.4,dy*1.4).clampLength(0,30);},
-   onPinch:amount=>this.travel(amount),
+   onDrag:(dx,dy)=>{if(!this.canAcceptSpatialInput())return;this.yaw+=dx*.0022;this.pitch=clamp(this.pitch+dy*.0018,-1.45,1.45);this.target.add(new THREE.Vector3(-dx*.065,dy*.065,0).applyQuaternion(this.camera.quaternion));this.turnVelocity.set(dx*.045,dy*.036).clampLength(0,1.1);this.velocity.set(-dx*1.4,dy*1.4).clampLength(0,30);},
+   onPinch:amount=>{if(this.canAcceptSpatialInput())this.travel(amount);},
    onTap:point=>this.handleTap(point.clientX,point.clientY),
    onCancel:()=>{this.velocity.set(0,0);this.turnVelocity.set(0,0);},
-   onWheel:deltaY=>{if(this.completed&&!this.flying&&!this.planetFlight&&!this.focusFlight)this.travel(-deltaY*.15);},
+   onWheel:deltaY=>{if(this.canAcceptSpatialInput())this.travel(-deltaY*.15);},
   });
   this.inputController.attach();
   canvas.addEventListener('webglcontextlost',this.contextLost);
   this.nativeHandler=e=>{this.nativeActive=(e as CustomEvent<boolean>).detail;this.schedule();};document.addEventListener('native-visibility',this.nativeHandler);document.addEventListener('visibilitychange',this.schedule);if(!this.completed)this.schedule();
  }
- private resize=()=>{this.w=this.canvas.clientWidth;this.h=this.canvas.clientHeight;if(!this.w||!this.h)return;this.camera.aspect=this.w/this.h;this.camera.updateProjectionMatrix();this.renderer.setSize(this.w,this.h,false);for(const m of this.materials){m.uniforms.uHeight.value=this.h;m.uniforms.uDpr.value=this.renderer.getPixelRatio();}};
+ private resize=()=>{this.w=this.canvas.clientWidth;this.h=this.canvas.clientHeight;if(!this.w||!this.h)return;this.camera.aspect=this.w/this.h;this.camera.updateProjectionMatrix();this.renderer.setSize(this.w,this.h,false);for(const m of this.materials){m.uniforms.uHeight.value=this.h;m.uniforms.uDpr.value=this.renderer.getPixelRatio();}if(shouldRequestUniverseFrameAfterResize(this.active,this.renderActive))this.requestOneShotFrame();};
  setReady(v:boolean){this.ready=v;}
+  lockQuickHeroTextureForHandoff(){if(this.introMode==='quick')this.quickHeroTextureLocked=true;}
  setActive(v:boolean){if(v===this.active)return;this.active=v;this.inputController.reset();this.schedule();if(v)this.notifySafeRebuildPoint();}
+  setRenderActive(v:boolean){if(v===this.renderActive)return;this.renderActive=v;this.schedule();}
  refreshItemMetadata(items:readonly GalaxyObject[]){
   let changed=false;
   for(const system of this.systems.values())if(system.refreshItemMetadata(items))changed=true;
@@ -197,9 +202,11 @@ export class UniverseScene {
  }
  isAtUniverseHome(){return this.completed&&this.mode==='universe'&&!this.focusedGalaxy&&!this.focusedPlanet&&!this.flying&&!this.focusFlight&&!this.planetFlight&&!this.universeFocusHome&&!this.systemFocusHome;}
  private notifySafeRebuildPoint(){if(this.isAtUniverseHome())this.onSafeRebuildPoint();}
- private schedule=()=>{cancelAnimationFrame(this.frame);this.last=0;if(!this.disposed&&this.active&&this.nativeActive&&!document.hidden)this.frame=requestAnimationFrame(this.tick);};
+ private frameState(){return {visible:this.active,continuous:this.renderActive,nativeActive:this.nativeActive,documentVisible:!document.hidden,disposed:this.disposed,oneShotPending:this.oneShotRequested};}
+  private schedule=()=>{if(this.frame!==null){cancelAnimationFrame(this.frame);this.frame=null;}this.last=0;if(canScheduleUniverseFrame(this.frameState()))this.frame=requestAnimationFrame(this.tick);};
+  private requestOneShotFrame=()=>{if(!shouldQueueUniverseOneShot(this.frameState()))return;this.oneShotRequested=true;this.schedule();};
  private tick=(now:number)=>{
-  if(this.disposed)return;const elapsed=this.last?(now-this.last)/1000:0,dt=Math.min(elapsed,.05);this.last=now;this.clock+=elapsed;
+  this.frame=null;if(!canScheduleUniverseFrame(this.frameState())){this.last=0;return;}this.oneShotRequested=false;const elapsed=this.last?(now-this.last)/1000:0,dt=Math.min(elapsed,.05);this.last=now;this.clock+=elapsed;
   if(dt>.029&&this.completed)this.slowFrames++;else this.slowFrames=Math.max(0,this.slowFrames-1);
   if(this.slowFrames>80&&this.quality>.65){this.quality=.65;this.renderer.setPixelRatio(1);for(const g of this.geometries)g.setDrawRange(0,Math.floor(g.attributes.position.count*.72));this.resize();}
   let gather=1,reveal=1,burst=0,birth=0,formation=1;this.universeOpacity=this.mode==='universe'?1:0;
@@ -209,7 +216,7 @@ export class UniverseScene {
    if(this.clock<this.handoffTime){this.camera.position.set(0,0,18+77*ease((lockedT-.2)/.8));this.camera.quaternion.identity();}
    else {const cameraT=ease((formation-.025)/.9);this.camera.position.lerpVectors(new THREE.Vector3(0,0,handoffZ),this.home,cameraT);this.camera.quaternion.slerpQuaternions(new THREE.Quaternion(),this.homeRotation,cameraT);}
    const pulse=lockedT<.24?ease(lockedT/.18):1-ease((lockedT-.24)/.23);this.core.material.opacity=this.clock<this.handoffTime?pulse*(.4+.6*ease(lockedT/.2)):0;const scale=lockedT<.24?.3+Math.pow(lockedT/.24,3)*1.8:2+ease((lockedT-.24)/.2)*35;this.core.scale.setScalar(scale);
-   if(this.clock>=this.duration&&this.ready){this.completed=true;this.camera.position.copy(this.home);this.camera.quaternion.copy(this.homeRotation);this.target.copy(this.home);this.core.visible=false;try{localStorage.setItem('yezi-universe-born-v1','1');}catch{}if(!this.readySent){this.readySent=true;this.onReady();}this.notifySafeRebuildPoint();}
+   if(this.clock>=this.duration&&this.ready){this.completed=true;this.camera.position.copy(this.home);this.camera.quaternion.copy(this.homeRotation);this.target.copy(this.home);this.core.visible=false;try{localStorage.setItem('yezi-universe-born-v1','1');}catch{}if(!this.readySent){this.readySent=true;this.onReady();}}
   }else if(this.focusFlight){
    const f=this.focusFlight;f.time+=elapsed;const sample=sampleCameraTransition(f.time,focusTransitionDuration(this.reduced),1.45);
    this.camera.position.lerpVectors(f.start,f.end,sample.progress);this.camera.quaternion.slerpQuaternions(f.startRotation,f.rotation,sample.rotationProgress);
@@ -228,15 +235,17 @@ export class UniverseScene {
    this.target.clampLength(0,1000);this.camera.position.lerp(this.target,1-Math.exp(-9*dt));this.camera.quaternion.slerp(new THREE.Quaternion().setFromEuler(new THREE.Euler(this.pitch,this.yaw,0,'YXZ')),1-Math.exp(-9*dt));
   }
   const background=this.scene.getObjectByName('background') as THREE.Points<THREE.BufferGeometry,THREE.PointsMaterial>,activeSystem=this.systems.get(this.mode);
-  updateUniverseVisuals({galaxies:this.galaxies,galaxyMaterials:this.galaxyMaterials,galaxyClouds:this.galaxyClouds,galaxyVolumes:this.galaxyVolumes,background,camera:this.camera,height:this.h,mode:this.mode,completed:this.completed,reduced:this.reduced,focusedGalaxy:this.focusedGalaxy,focusedPlanet:this.focusedPlanet,clock:this.clock,formation,gather,burst,reveal,birth,universeOpacity:this.universeOpacity,activeSystem,planetFocusTime:this.planetFocusTime,now,collectionProgress:this.collectionProgress});
   this.camera.updateMatrixWorld();
+  updateUniverseVisuals({galaxies:this.galaxies,galaxyMaterials:this.galaxyMaterials,galaxyClouds:this.galaxyClouds,galaxyVolumes:this.galaxyVolumes,background,camera:this.camera,height:this.h,mode:this.mode,completed:this.completed,reduced:this.reduced,focusedGalaxy:this.focusedGalaxy,focusedPlanet:this.focusedPlanet,clock:this.clock,formation,gather,burst,reveal,birth,universeOpacity:this.universeOpacity,activeSystem,planetFocusTime:this.planetFocusTime,now,collectionProgress:this.collectionProgress});
   this.labelProjector.update({camera:this.camera,width:this.w,height:this.h,mode:this.mode,completed:this.completed,flying:Boolean(this.flying),planetFlight:Boolean(this.planetFlight),focusedGalaxy:this.focusedGalaxy,focusedPlanet:this.focusedPlanet,activeSystem});
-  const phase=this.birthPhase();this.canvas.dataset.phase=phase;this.canvas.dataset.mode=this.mode;this.canvas.dataset.focused=this.focusedPlanet||this.focusedGalaxy||'';this.canvas.dataset.elapsed=this.clock.toFixed(2);this.canvas.dataset.ready=String(this.ready);this.canvas.dataset.position=this.camera.position.toArray().map(v=>v.toFixed(2)).join(',');this.canvas.dataset.direction=this.camera.getWorldDirection(new THREE.Vector3()).toArray().map(v=>v.toFixed(3)).join(',');this.renderer.render(this.scene,this.camera);if(!this.firstFrame){this.firstFrame=true;this.onFirstFrame();if(this.completed&&!this.readySent){this.readySent=true;this.onReady();}}this.frame=requestAnimationFrame(this.tick);
+  const phase=this.birthPhase();this.canvas.dataset.phase=phase;this.canvas.dataset.mode=this.mode;this.canvas.dataset.focused=this.focusedPlanet||this.focusedGalaxy||'';this.canvas.dataset.elapsed=this.clock.toFixed(2);this.canvas.dataset.ready=String(this.ready);this.canvas.dataset.position=this.camera.position.toArray().map(v=>v.toFixed(2)).join(',');this.canvas.dataset.direction=this.camera.getWorldDirection(new THREE.Vector3()).toArray().map(v=>v.toFixed(3)).join(',');this.renderer.render(this.scene,this.camera);if(!this.firstFrame){this.firstFrame=true;this.onFirstFrame();if(this.completed&&!this.readySent){this.readySent=true;this.onReady();}}if(shouldContinueUniverseFrame(this.frameState()))this.frame=requestAnimationFrame(this.tick);
  };
+ private canAcceptSpatialInput(){return canAcceptUniverseSpatialInput({completed:this.completed,disposed:this.disposed,flying:Boolean(this.flying),focusFlight:Boolean(this.focusFlight),planetFlight:Boolean(this.planetFlight)});}
  private galaxyVisualScale(g:Galaxy){return getGalaxyVisualScale(g,this.camera,this.h);}
  private galaxyDescription(g:Galaxy){const descriptions:Record<string,string>={数码:'由精密器物与技术记忆构成。',游戏:'收藏那些被亲自走过的虚拟世界。',书籍:'文字、思想与阅读时刻在此运行。'};return descriptions[g.category||'']||`收藏着${g.category||'重要'}记忆的私人星系。`;}
  private beginFocus(kind:'galaxy'|'planet',id:string,end:THREE.Vector3,lookAt:THREE.Vector3,returning=false){this.velocity.set(0,0);this.turnVelocity.set(0,0);const rotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(end,lookAt,new THREE.Vector3(0,1,0)));this.focusFlight={kind,id,start:this.camera.position.clone(),end,startRotation:this.camera.quaternion.clone(),rotation,time:0,returning};}
  enter=(g:Galaxy)=>{
+   if(!this.canAcceptSpatialInput())return;
    const action=galaxyActivationAction({focusedGalaxyId:this.focusedGalaxy,clickedGalaxyId:g.id,completed:this.completed,galaxyFlight:Boolean(this.flying),planetFlight:Boolean(this.planetFlight),focusFlight:Boolean(this.focusFlight)});
    if(action==='blocked')return;
    if(action==='enter'){this.enterFocusedGalaxy(g);return;}
@@ -253,6 +262,7 @@ export class UniverseScene {
  }
  private enterGalaxy(galaxy:Galaxy,system:GalaxySystem){this.mode=galaxy.id;this.flying=undefined;this.target.copy(this.camera.position);const e=new THREE.Euler().setFromQuaternion(this.camera.quaternion,'YXZ');this.pitch=e.x;this.yaw=e.y;system.setVisible(true);system.setOpacity(1);system.update(performance.now());this.onMode(galaxy.id);}
   enterPlanet=(id:string)=>{
+   if(!this.canAcceptSpatialInput())return;
    const system=this.systems.get(this.mode);if(!system)return;
    const action=planetActivationAction(this.focusedPlanet,id,Boolean(this.planetFlight||this.focusFlight));
    if(action==='blocked')return;
@@ -265,7 +275,7 @@ export class UniverseScene {
   };
  private openFocusedPlanet(planet:GalaxyPlanet){const returnContract=collectionReturnContract('universe-planet',Boolean(this.systemFocusHome));if(!returnContract.planetDismissAnchor)this.systemFocusHome=undefined;const center=planet.root.getWorldPosition(new THREE.Vector3()),direction=this.camera.position.clone().sub(center).normalize(),extent=planet.size*(planet.profile.rings?.outerRadius||1.12),distance=Math.max(planet.size*2.15,extent*1.58),end=center.clone().addScaledVector(direction,distance),right=new THREE.Vector3(1,0,0).applyQuaternion(this.camera.quaternion),up=new THREE.Vector3(0,1,0).applyQuaternion(this.camera.quaternion),lookAt=center.clone().addScaledVector(right,this.w>700?-planet.size*.34:0).addScaledVector(up,planet.size*.12),rotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(end,lookAt,new THREE.Vector3(0,1,0)));this.collectionHome={position:this.camera.position.clone(),rotation:this.camera.quaternion.clone()};this.collectionProgress=0;this.onFocus(null);this.onOpenPlanet(planet.item.id);this.onCollectionStage('approach',planet.item.id);this.planetFlight={start:this.camera.position.clone(),end,startRotation:this.camera.quaternion.clone(),rotation,time:0,planet,returning:false};}
  exitCollection=()=>{const current=this.planetFlight;if(!current)return false;if(current.returning)return true;this.planetFlight={start:this.camera.position.clone(),end:this.collectionHome.position.clone(),startRotation:this.camera.quaternion.clone(),rotation:this.collectionHome.rotation.clone(),time:0,planet:current.planet,returning:true};return true;};
- presentCollection=(id:string)=>{let system:GalaxySystem|undefined,planet:GalaxyPlanet|undefined,systemId='';for(const [key,candidate] of this.systems){const found=candidate.planets.find(p=>p.item.id===id);if(found){system=candidate;planet=found;systemId=key;break;}}if(!system||!planet)return false;const returnContract=collectionReturnContract('index-timeline',Boolean(this.systemFocusHome));if(!returnContract.planetDismissAnchor)this.systemFocusHome=undefined;for(const candidate of this.systems.values()){candidate.setVisible(candidate===system);candidate.setOpacity(candidate===system?1:0);}this.mode=systemId;this.focusedGalaxy=undefined;this.focusedPlanet=id;this.planetFocusTime=performance.now();system.update(this.planetFocusTime,id,performance.now());const center=planet.root.getWorldPosition(new THREE.Vector3()),direction=new THREE.Vector3(0,0,1).applyQuaternion(this.homeRotation).normalize(),focusPosition=center.clone().addScaledVector(direction,planet.size*8.4),focusRotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(focusPosition,center,new THREE.Vector3(0,1,0))),extent=planet.size*(planet.profile.rings?.outerRadius||1.12),end=center.clone().addScaledVector(direction,Math.max(planet.size*2.15,extent*1.58)),right=new THREE.Vector3(1,0,0).applyQuaternion(focusRotation),lookAt=center.clone().addScaledVector(right,this.w>700?-planet.size*.34:0).add(new THREE.Vector3(0,planet.size*.12,0)),rotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(end,lookAt,new THREE.Vector3(0,1,0)));this.collectionHome={position:focusPosition,rotation:focusRotation};this.collectionProgress=1;this.camera.position.copy(end);this.camera.quaternion.copy(rotation);this.target.copy(end);this.planetFlight={start:end.clone(),end:end.clone(),startRotation:rotation.clone(),rotation,time:2,planet,returning:false,entered:true};this.onMode(systemId);this.onFocus(null);this.onCollectionStage('entered',id);this.schedule();return true;};
+ presentCollection=(id:string)=>{let system:GalaxySystem|undefined,planet:GalaxyPlanet|undefined,systemId='';for(const [key,candidate] of this.systems){const found=candidate.planets.find(p=>p.item.id===id);if(found){system=candidate;planet=found;systemId=key;break;}}if(!system||!planet)return false;const returnContract=collectionReturnContract('index-timeline',Boolean(this.systemFocusHome));if(!returnContract.planetDismissAnchor)this.systemFocusHome=undefined;for(const candidate of this.systems.values()){candidate.setVisible(candidate===system);candidate.setOpacity(candidate===system?1:0);}this.mode=systemId;this.focusedGalaxy=undefined;this.focusedPlanet=id;this.planetFocusTime=performance.now();system.update(this.planetFocusTime,id,performance.now());const center=planet.root.getWorldPosition(new THREE.Vector3()),direction=new THREE.Vector3(0,0,1).applyQuaternion(this.homeRotation).normalize(),focusPosition=center.clone().addScaledVector(direction,planet.size*8.4),focusRotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(focusPosition,center,new THREE.Vector3(0,1,0))),extent=planet.size*(planet.profile.rings?.outerRadius||1.12),end=center.clone().addScaledVector(direction,Math.max(planet.size*2.15,extent*1.58)),right=new THREE.Vector3(1,0,0).applyQuaternion(focusRotation),lookAt=center.clone().addScaledVector(right,this.w>700?-planet.size*.34:0).add(new THREE.Vector3(0,planet.size*.12,0)),rotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(end,lookAt,new THREE.Vector3(0,1,0)));this.collectionHome={position:focusPosition,rotation:focusRotation};this.collectionProgress=1;this.camera.position.copy(end);this.camera.quaternion.copy(rotation);this.target.copy(end);this.planetFlight={start:end.clone(),end:end.clone(),startRotation:rotation.clone(),rotation,time:2,planet,returning:false,entered:true};this.onMode(systemId);this.onFocus(null);this.onCollectionStage('entered',id);this.requestOneShotFrame();return true;};
   private cancelFocus(){
    const action=focusBackAction({returningFocusFlight:Boolean(this.focusFlight?.returning),focusedPlanet:Boolean(this.focusedPlanet),hasPlanetDismissAnchor:Boolean(this.systemFocusHome),focusedGalaxy:Boolean(this.focusedGalaxy),hasGalaxyDismissAnchor:Boolean(this.universeFocusHome)});
    if(action==='consume-returning-transition')return true;
@@ -295,6 +305,7 @@ export class UniverseScene {
  private birthPhase():UniverseState['phase']{if(this.completed){if(this.planetFlight)return this.planetFlight.returning?'collection-return':this.planetFlight.entered?'collection':'collection-approach';return this.flying||this.focusFlight?'flight':'explore';}if(this.clock<this.baselineDuration*.18)return'singularity';if(this.clock<this.handoffTime*.82)return'explosion';if(this.clock<this.handoffTime)return'deep-space';return'formation';}
  skip=()=>{this.clock=Math.max(this.clock,this.duration-(this.introMode==='quick'?.22:.65));};
  private handleTap(clientX:number,clientY:number){
+  if(!this.canAcceptSpatialInput())return;
   const bounds=this.canvas.getBoundingClientRect(),x=clientX-bounds.left,y=clientY-bounds.top;
   const ray=new THREE.Raycaster();
   ray.setFromCamera(new THREE.Vector2(x/this.w*2-1,1-y/this.h*2),this.camera);
@@ -312,5 +323,5 @@ export class UniverseScene {
  }
  private contextLost=(e:Event)=>{e.preventDefault();this.onError();};
  snapshot():UniverseState{return {phase:this.birthPhase(),elapsed:this.clock,camera:this.camera.position.toArray() as [number,number,number],drawCalls:this.renderer.info.render.calls,points:this.renderer.info.render.points};}
- dispose(){this.disposed=true;clearTimeout(this.emissionTimeout);cancelAnimationFrame(this.frame);this.observer.disconnect();document.removeEventListener('visibilitychange',this.schedule);document.removeEventListener('native-visibility',this.nativeHandler);this.inputController.dispose();this.canvas.removeEventListener('webglcontextlost',this.contextLost);for(const system of this.systems.values())system.dispose(this.scene);this.geometries.forEach(g=>g.dispose());this.materials.forEach(m=>m.dispose());for(const cloud of this.galaxyClouds){this.scene.remove(cloud.mesh);cloud.mesh.material.dispose();cloud.texture.dispose();}for(const volume of this.galaxyVolumes){this.scene.remove(volume.group);volume.innerMaterial.dispose();volume.coreMaterial.dispose();volume.haloMaterial.dispose();}this.cloudGeometry.dispose();this.volumeCoreGeometry.dispose();this.volumeGlowTexture.dispose();(this.scene.getObjectByName('background') as THREE.Points<THREE.BufferGeometry,THREE.PointsMaterial>).material.dispose();this.core.material.map?.dispose();this.core.material.dispose();this.texture?.dispose();this.renderer.dispose();}
+ dispose(){this.disposed=true;this.oneShotRequested=false;clearTimeout(this.emissionTimeout);if(this.frame!==null){cancelAnimationFrame(this.frame);this.frame=null;}this.observer.disconnect();document.removeEventListener('visibilitychange',this.schedule);document.removeEventListener('native-visibility',this.nativeHandler);this.inputController.dispose();this.canvas.removeEventListener('webglcontextlost',this.contextLost);for(const system of this.systems.values())system.dispose(this.scene);this.geometries.forEach(g=>g.dispose());this.materials.forEach(m=>m.dispose());for(const cloud of this.galaxyClouds){this.scene.remove(cloud.mesh);cloud.mesh.material.dispose();cloud.texture.dispose();}for(const volume of this.galaxyVolumes){this.scene.remove(volume.group);volume.innerMaterial.dispose();volume.coreMaterial.dispose();volume.haloMaterial.dispose();}this.cloudGeometry.dispose();this.volumeCoreGeometry.dispose();this.volumeGlowTexture.dispose();(this.scene.getObjectByName('background') as THREE.Points<THREE.BufferGeometry,THREE.PointsMaterial>).material.dispose();this.core.material.map?.dispose();this.core.material.dispose();this.texture?.dispose();this.renderer.dispose();}
 }

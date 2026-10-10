@@ -8,6 +8,25 @@ export function sceneRebuildAction(configChanged: boolean, collectionStage: Univ
   return collectionStage === 'none' && atUniverseHome ? 'rebuild' : 'defer';
 }
 
+export function startupSceneRebuildAction(
+  configChanged: boolean,
+  hasFormed: boolean,
+  collectionStage: UniverseCollectionStage,
+  atUniverseHome: boolean,
+): SceneRebuildAction {
+  if (!configChanged) return 'unchanged';
+  if (!hasFormed) return 'rebuild';
+  return sceneRebuildAction(configChanged, collectionStage, atUniverseHome);
+}
+
+export function isCurrentSceneRevision(sceneRevision: number, currentRevision: number, disposed: boolean): boolean {
+  return !disposed && sceneRevision === currentRevision;
+}
+
+export function carryStartupElapsed(previousElapsed: number, sceneElapsed: number): number {
+  return Math.max(previousElapsed, sceneElapsed);
+}
+
 export type CollectionEntryPath = 'universe-planet' | 'index-timeline';
 
 export function collectionReturnContract(path: CollectionEntryPath, hasCapturedPlanetDismissAnchor: boolean): {

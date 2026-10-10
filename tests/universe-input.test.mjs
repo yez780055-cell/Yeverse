@@ -1,6 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {UniverseInputController} from '../.test-runtime/universe-input/UniverseInputController.js';
+import {canAcceptUniverseSpatialInput} from '../.test-runtime/universe-input/spatialInputPolicy.js';
+import {readFileSync} from 'node:fs';
 
 class FakeCanvas {
  listeners=new Map();
@@ -145,4 +147,63 @@ test('disabled input does not capture pointers and dispose removes listeners ide
  assert.equal(h.canvas.added.length,attachedCount);
  h.canvas.emit('pointerup',pointer(2,1,1));
  assert.equal(h.controller.pointerState.size,0);
+});
+
+const spatialState=(overrides={})=>({
+ completed:false,disposed:false,flying:false,focusFlight:false,planetFlight:false,...overrides,
+});
+
+test('spatial input is accepted immediately after formation and remains blocked only by existing transitions or disposal',()=>{
+ assert.equal(canAcceptUniverseSpatialInput(spatialState({completed:true})),true);
+ for(const blocker of ['disposed','flying','focusFlight','planetFlight']){
+  assert.equal(canAcceptUniverseSpatialInput(spatialState({completed:true,[blocker]:true})),false,blocker);
+ }
+ assert.equal(canAcceptUniverseSpatialInput(spatialState({completed:false})),false);
+});
+
+function createImmediateInputHarness(){
+ const state=spatialState(),canvas=new FakeCanvas();
+ const events={downs:0,drags:[],pinches:[],taps:[],cancels:0,wheels:[]};
+ const canAccept=()=>canAcceptUniverseSpatialInput(state);
+ const controller=new UniverseInputController(canvas,{
+  canStart:canAccept,
+  onPointerDown:()=>events.downs++,
+  onDrag:(dx,dy)=>{if(canAccept())events.drags.push([dx,dy]);},
+  onPinch:amount=>{if(canAccept())events.pinches.push(amount);},
+  onTap:point=>{if(canAccept())events.taps.push(point);},
+  onCancel:()=>events.cancels++,
+  onWheel:deltaY=>{if(canAccept())events.wheels.push(deltaY);},
+ });
+ controller.attach();
+ return {canvas,controller,events,complete:()=>{state.completed=true;}};
+}
+
+test('tap, drag, pinch, and wheel are available on the first input after formation',()=>{
+ const h=createImmediateInputHarness();h.complete();
+ h.canvas.emit('pointerdown',pointer(1,10,10));h.canvas.emit('pointerup',pointer(1,10,10));
+ h.canvas.emit('pointerdown',pointer(2,0,0));h.canvas.emit('pointermove',pointer(2,8,0));h.canvas.emit('pointerup',pointer(2,8,0));
+ h.canvas.emit('pointerdown',pointer(3,0,0));h.canvas.emit('pointerdown',pointer(4,20,0));h.canvas.emit('pointermove',pointer(4,28,0));h.canvas.emit('pointerup',pointer(3,0,0));h.canvas.emit('pointerup',pointer(4,28,0));
+ h.canvas.emit('wheel',{deltaY:24,preventDefault(){}});
+ assert.equal(h.events.downs,4);
+ assert.deepEqual(h.events.taps,[{clientX:10,clientY:10}]);
+ assert.deepEqual(h.events.drags,[[8,0]]);
+ assert.equal(h.events.pinches.length,1);
+ assert.ok(Math.abs(h.events.pinches[0]-Math.log(1.4)*180)<1e-10);
+ assert.deepEqual(h.events.wheels,[24]);
+ h.controller.dispose();
+});
+
+test('UniverseScene applies the immediate shared gate to canvas gestures and DOM entry points',()=>{
+ const source=readFileSync('components/universe/scene.ts','utf8');
+ assert.match(source,/canStart:\(\)=>this\.canAcceptSpatialInput\(\)/);
+ assert.match(source,/onDrag:\(dx,dy\)=>\{if\(!this\.canAcceptSpatialInput\(\)\)return;/);
+ assert.match(source,/onPinch:amount=>\{if\(this\.canAcceptSpatialInput\(\)\)this\.travel\(amount\);\}/);
+ assert.match(source,/onWheel:deltaY=>\{if\(this\.canAcceptSpatialInput\(\)\)this\.travel\(-deltaY\*\.15\);\}/);
+ assert.match(source,/private handleTap\(clientX:number,clientY:number\)\{\s*if\(!this\.canAcceptSpatialInput\(\)\)return;/);
+ assert.match(source,/private canAcceptSpatialInput\(\)\{return canAcceptUniverseSpatialInput\(\{completed:this\.completed,disposed:this\.disposed/);
+ const galaxyStart=source.indexOf('enter=(g:Galaxy)=>{'),galaxyEnd=source.indexOf('private enterFocusedGalaxy',galaxyStart);
+ assert.ok(galaxyStart>=0&&galaxyEnd>galaxyStart);assert.match(source.slice(galaxyStart,galaxyEnd),/if\(!this\.canAcceptSpatialInput\(\)\)return;/);
+ const planetStart=source.indexOf('enterPlanet=(id:string)=>{'),planetEnd=source.indexOf('private openFocusedPlanet',planetStart);
+ assert.ok(planetStart>=0&&planetEnd>planetStart);assert.match(source.slice(planetStart,planetEnd),/if\(!this\.canAcceptSpatialInput\(\)\)return;/);
+ assert.doesNotMatch(source,/interactionReadyAt|performance\.now\(\)\+300/);
 });

@@ -7,6 +7,9 @@ const output=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.
 const directory='.test-runtime/state-tests/lib/universe';
 mkdirSync(directory,{recursive:true});
 writeFileSync(`${directory}/flowState.js`,output);
+const startupPresentation=readFileSync('lib/universe/startupPresentation.ts','utf8');
+const startupOutput=ts.transpileModule(startupPresentation,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
+writeFileSync(`${directory}/startupPresentation.js`,startupOutput);
 const backPriority=readFileSync('lib/platform/backPriority.ts','utf8');
 const backOutput=ts.transpileModule(backPriority,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText;
 mkdirSync('.test-runtime/state-tests/lib/platform',{recursive:true});
