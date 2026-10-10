@@ -22,6 +22,15 @@ test('register adds one alive renderer and unregister removes it',()=>{
  assert.equal(registry.getSnapshot().aliveRendererCount,0);
 });
 
+test('renderer lifecycle subscribers observe register and unregister snapshots without retaining renderers',()=>{
+ const registry=createWebGLDiagnosticsRegistry(true),snapshots=[];
+ const unsubscribe=registry.subscribeLifecycle(snapshot=>snapshots.push(snapshot));
+ const id=registry.register(input('universe'));
+ registry.unregister(id);unsubscribe();registry.unregister(id);
+ assert.deepEqual(snapshots.map(snapshot=>snapshot.aliveRendererCount),[1,0]);
+ assert.equal(registry.activeCount(),0);
+});
+
 test('unregistered renderers disappear from snapshots and repeated unregister is idempotent',()=>{
  const registry=createWebGLDiagnosticsRegistry(true);
  const id=registry.register(input('intro'));
