@@ -115,6 +115,8 @@ const UniverseHome=forwardRef<UniverseHomeHandle,Props>(function UniverseHome(pr
   useEffect(()=>{scene.current?.setActive(props.active&&!failed);introScene.current?.setActive(props.active&&!failed);if(!props.active)setMenu(false);},[props.active,failed]);
  useEffect(()=>{if(!formed)return;const timer=setTimeout(()=>setHint(false),8000);return()=>clearTimeout(timer);},[formed]);
  const navigate=(fn:()=>void)=>{setMenu(false);fn();};
+ const benchmarkWebGLAvailable=benchmarkEnabled&&getWebGLDiagnosticsSnapshot().renderers.some(renderer=>renderer.kind==='universe'&&renderer.backend==='webgl');
+ const canRunRebuildBenchmark=benchmarkWebGLAvailable&&formed&&props.active&&collectionStage==='none'&&!benchmarkRunning&&Boolean(scene.current?.isAtUniverseHome());
  return <section className={`universe-home ${formed?'is-formed':''} ${props.active?'':'is-hidden'} ${collectionStage!=='none'?'is-collection':''}`} aria-label="私人宇宙" aria-hidden={!props.active}>
   <canvas key={sceneRevision} ref={canvas} className="universe-canvas" aria-label="拖动探索宇宙，双指缩放，轻触聚焦，再次轻触进入"/>
   <canvas ref={introCanvas} className={`universe-intro-canvas is-${props.introMode} ${introVisible?'is-visible':''} ${handoff?'is-handoff':''}`} aria-hidden="true"/>
@@ -127,7 +129,7 @@ const UniverseHome=forwardRef<UniverseHomeHandle,Props>(function UniverseHome(pr
   {formed&&!failed&&collectionStage==='none'&&<><div className="universe-tools"><button aria-label={menu?'关闭宇宙导航':'打开宇宙导航'} aria-expanded={menu} onClick={()=>setMenu(v=>!v)}>{menu?<X size={19}/>:<Menu size={19}/>}</button></div><p className={`universe-hint ${hint?'':'is-quiet'}`}>拖动转向 · 双指前行或后退</p></>}
   {menu&&<nav className="universe-menu" aria-label="宇宙导航"><button onClick={()=>navigate(()=>scene.current?.reset())}><Compass size={18}/>{layer!=='universe'?'返回宇宙':'回到出发点'}</button><button disabled={!props.ready} onClick={()=>navigate(props.onAdd)}><Plus size={18}/>添加藏品</button><button onClick={()=>navigate(props.onIndex)}><Grid2X2 size={18}/>全部藏品</button><button onClick={()=>navigate(props.onTimeline)}><Clock3 size={18}/>时间线</button><button onClick={()=>navigate(props.onSettings)}><SlidersHorizontal size={18}/>设置与备份</button></nav>}
   {failed&&<div className="universe-fallback"><p>宇宙暂时无法显示</p><button onClick={()=>{setFailed(false);setFormed(false);setRetry(v=>v+1);}}>重新开启</button><button onClick={props.onIndex}>进入藏品库</button></div>}
-  <UniverseRebuildBenchmarkPanel enabled={benchmarkEnabled} canRun={benchmarkEnabled&&formed&&props.active&&collectionStage==='none'&&!benchmarkRunning&&Boolean(scene.current?.isAtUniverseHome())} applyDataset={applyBenchmarkDataset} restoreOriginal={restoreBenchmarkOriginal} onRunningChange={setBenchmarkRunning}/>
+  <UniverseRebuildBenchmarkPanel enabled={benchmarkEnabled} canRun={canRunRebuildBenchmark} applyDataset={applyBenchmarkDataset} restoreOriginal={restoreBenchmarkOriginal} onRunningChange={setBenchmarkRunning}/>
  </section>;
 });
 export default UniverseHome;
