@@ -7,6 +7,7 @@ import {backNavigationAction,collectionReturnContract,focusBackAction,galaxyActi
 import {publicAssetUrl} from '@/lib/assets/publicAssetUrl';
 import {UniverseInputController,type UniversePointerState} from './UniverseInputController';
 import {UniverseLabelProjector} from './UniverseLabelProjector';
+import {focusTransitionDuration,galaxyFlightDuration,planetFlightDuration,sampleCameraTransition} from '@/lib/universe/cameraTransition';
 
 const vertex = `
 attribute float aSize; attribute float aKind; attribute float aSeed;
@@ -194,18 +195,18 @@ export class UniverseScene {
    const pulse=lockedT<.24?ease(lockedT/.18):1-ease((lockedT-.24)/.23);this.core.material.opacity=this.clock<this.handoffTime?pulse*(.4+.6*ease(lockedT/.2)):0;const scale=lockedT<.24?.3+Math.pow(lockedT/.24,3)*1.8:2+ease((lockedT-.24)/.2)*35;this.core.scale.setScalar(scale);
    if(this.clock>=this.duration&&this.ready){this.completed=true;this.camera.position.copy(this.home);this.camera.quaternion.copy(this.homeRotation);this.target.copy(this.home);this.core.visible=false;try{localStorage.setItem('yezi-universe-born-v1','1');}catch{}if(!this.readySent){this.readySent=true;this.onReady();}this.notifySafeRebuildPoint();}
   }else if(this.focusFlight){
-   const f=this.focusFlight;f.time+=elapsed;const t=ease(f.time/(this.reduced?.18:1.18));
-   this.camera.position.lerpVectors(f.start,f.end,t);this.camera.quaternion.slerpQuaternions(f.startRotation,f.rotation,ease(Math.min(1,t*1.45)));
-   if(t===1){this.target.copy(f.end);const e=new THREE.Euler().setFromQuaternion(this.camera.quaternion,'YXZ');this.pitch=e.x;this.yaw=e.y;this.focusFlight=undefined;this.notifySafeRebuildPoint();}
+   const f=this.focusFlight;f.time+=elapsed;const sample=sampleCameraTransition(f.time,focusTransitionDuration(this.reduced),1.45);
+   this.camera.position.lerpVectors(f.start,f.end,sample.progress);this.camera.quaternion.slerpQuaternions(f.startRotation,f.rotation,sample.rotationProgress);
+   if(sample.done){this.target.copy(f.end);const e=new THREE.Euler().setFromQuaternion(this.camera.quaternion,'YXZ');this.pitch=e.x;this.yaw=e.y;this.focusFlight=undefined;this.notifySafeRebuildPoint();}
   }else if(this.planetFlight){
-   const f=this.planetFlight;f.time+=elapsed;const t=ease(f.time/(this.reduced?.2:f.returning?1.45:1.75));this.collectionProgress=f.returning?1-t:t;
-   this.camera.position.lerpVectors(f.start,f.end,t);this.camera.quaternion.slerpQuaternions(f.startRotation,f.rotation,ease(Math.min(1,t*1.5)));
-   if(t===1){if(f.returning){this.target.copy(f.end);const e=new THREE.Euler().setFromQuaternion(this.camera.quaternion,'YXZ');this.pitch=e.x;this.yaw=e.y;this.planetFlight=undefined;this.collectionProgress=0;this.onCollectionStage('exited',f.planet.item.id);this.notifySafeRebuildPoint();}else if(!f.entered){f.entered=true;this.onCollectionStage('entered',f.planet.item.id);}}
+   const f=this.planetFlight;f.time+=elapsed;const sample=sampleCameraTransition(f.time,planetFlightDuration(this.reduced,f.returning),1.5);this.collectionProgress=f.returning?1-sample.progress:sample.progress;
+   this.camera.position.lerpVectors(f.start,f.end,sample.progress);this.camera.quaternion.slerpQuaternions(f.startRotation,f.rotation,sample.rotationProgress);
+   if(sample.done){if(f.returning){this.target.copy(f.end);const e=new THREE.Euler().setFromQuaternion(this.camera.quaternion,'YXZ');this.pitch=e.x;this.yaw=e.y;this.planetFlight=undefined;this.collectionProgress=0;this.onCollectionStage('exited',f.planet.item.id);this.notifySafeRebuildPoint();}else if(!f.entered){f.entered=true;this.onCollectionStage('entered',f.planet.item.id);}}
   }else if(this.flying){
-   const f=this.flying;f.time+=elapsed;const t=ease(f.time/(this.reduced?.25:2.1));
-   this.camera.position.lerpVectors(f.start,f.end,t);this.camera.quaternion.slerpQuaternions(f.startRotation,f.rotation,ease(Math.min(1,t*1.6)));
-   const arriving=this.systems.get(f.galaxy.id);if(!f.returning&&arriving){const arrival=ease((t-.7)/.3);arriving.setVisible(arrival>0);arriving.setOpacity(arrival);arriving.update(now);this.universeOpacity=1-arrival;}
-   if(t===1){if(f.returning){this.target.copy(this.home);this.flying=undefined;this.notifySafeRebuildPoint();}else if(arriving){this.enterGalaxy(f.galaxy,arriving);}else if(f.galaxy.category&&!f.entered){f.entered=true;this.onEnter(f.galaxy);}else if(!f.galaxy.category){this.target.copy(f.end);const e=new THREE.Euler().setFromQuaternion(this.camera.quaternion,'YXZ');this.pitch=e.x;this.yaw=e.y;this.flying=undefined;this.notifySafeRebuildPoint();}}
+   const f=this.flying;f.time+=elapsed;const sample=sampleCameraTransition(f.time,galaxyFlightDuration(this.reduced),1.6);
+   this.camera.position.lerpVectors(f.start,f.end,sample.progress);this.camera.quaternion.slerpQuaternions(f.startRotation,f.rotation,sample.rotationProgress);
+   const arriving=this.systems.get(f.galaxy.id);if(!f.returning&&arriving){const arrival=ease((sample.progress-.7)/.3);arriving.setVisible(arrival>0);arriving.setOpacity(arrival);arriving.update(now);this.universeOpacity=1-arrival;}
+   if(sample.done){if(f.returning){this.target.copy(this.home);this.flying=undefined;this.notifySafeRebuildPoint();}else if(arriving){this.enterGalaxy(f.galaxy,arriving);}else if(f.galaxy.category&&!f.entered){f.entered=true;this.onEnter(f.galaxy);}else if(!f.galaxy.category){this.target.copy(f.end);const e=new THREE.Euler().setFromQuaternion(this.camera.quaternion,'YXZ');this.pitch=e.x;this.yaw=e.y;this.flying=undefined;this.notifySafeRebuildPoint();}}
   }else {
    if(this.pointers.size===0){this.yaw+=this.turnVelocity.x*dt;this.pitch=clamp(this.pitch+this.turnVelocity.y*dt,-1.45,1.45);this.turnVelocity.multiplyScalar(Math.exp(-5*dt));this.target.addScaledVector(new THREE.Vector3(this.velocity.x,this.velocity.y,0).applyQuaternion(this.camera.quaternion),dt);this.velocity.multiplyScalar(Math.exp(-5*dt));}
    this.target.clampLength(0,1000);this.camera.position.lerp(this.target,1-Math.exp(-9*dt));this.camera.quaternion.slerp(new THREE.Quaternion().setFromEuler(new THREE.Euler(this.pitch,this.yaw,0,'YXZ')),1-Math.exp(-9*dt));
