@@ -3,6 +3,7 @@ import {createPortal} from 'react-dom';
 import type {CSSProperties} from 'react';
 import {formatWebGLDiagnosticsSnapshot,getWebGLDiagnosticsSnapshot,isWebGLDiagnosticsEnabled} from '@/lib/perf/webglDiagnostics';
 import {clearStartupDiagnosticsHistory,collectStartupNetworkSnapshot,formatStartupDiagnosticsReport,getStartupDiagnosticsSnapshot,refreshStartupNavigationMetrics,subscribeStartupDiagnostics,type StartupBundleReport,type StartupDiagnosticsSnapshot} from '@/lib/perf/startupDiagnostics';
+import {formatRobustnessReport,getRobustnessDiagnosticsSnapshot,startRobustnessEventListeners,subscribeRobustnessDiagnostics,type RobustnessDiagnosticsSnapshot} from '@/lib/perf/robustnessDiagnostics';
 
 function moduleResourceUrls(){
  return [...document.querySelectorAll<HTMLScriptElement>('script[type="module"][src]')].map(node=>new URL(node.src,location.href).href)
@@ -17,9 +18,11 @@ async function copyText(text:string){
 function PanelContents(){
  const [expanded,setExpanded]=useState(false);
  const [showStartup,setShowStartup]=useState(false);
+ const [showRobustness,setShowRobustness]=useState(false);
  const [copied,setCopied]=useState(false);
  const [snapshot,setSnapshot]=useState(getWebGLDiagnosticsSnapshot);
  const [startupSnapshot,setStartupSnapshot]=useState<StartupDiagnosticsSnapshot>(getStartupDiagnosticsSnapshot);
+ const [robustnessSnapshot,setRobustnessSnapshot]=useState<RobustnessDiagnosticsSnapshot>(()=>getRobustnessDiagnosticsSnapshot(getWebGLDiagnosticsSnapshot()));
  const [bundleReport,setBundleReport]=useState<StartupBundleReport|null>(null);
  const [bundleLoading,setBundleLoading]=useState(false);
  useEffect(()=>{
@@ -27,6 +30,12 @@ function PanelContents(){
   return()=>window.clearInterval(timer);
  },[]);
  useEffect(()=>{setStartupSnapshot(getStartupDiagnosticsSnapshot());return subscribeStartupDiagnostics(setStartupSnapshot);},[]);
+ useEffect(()=>{
+  const stopEvents=startRobustnessEventListeners();
+  const update=()=>setRobustnessSnapshot(getRobustnessDiagnosticsSnapshot(getWebGLDiagnosticsSnapshot()));
+  const unsubscribe=subscribeRobustnessDiagnostics(update),timer=window.setInterval(update,1000);update();
+  return()=>{window.clearInterval(timer);unsubscribe();stopEvents();};
+ },[]);
  useEffect(()=>{
   if(!showStartup||bundleReport||import.meta.env.MODE!=='preview')return;
   let cancelled=false;setBundleLoading(true);
@@ -48,6 +57,11 @@ function PanelContents(){
   setCopied(await copyText(formatStartupDiagnosticsReport(currentStartup,bundleReport,network)));
   window.setTimeout(()=>setCopied(false),1600);
  }
+ async function copyRobustnessReport(){
+  const current=getRobustnessDiagnosticsSnapshot(getWebGLDiagnosticsSnapshot());setRobustnessSnapshot(current);
+  setCopied(await copyText(formatRobustnessReport(current)));
+  window.setTimeout(()=>setCopied(false),1600);
+ }
  const panelStyle:CSSProperties={position:'fixed',right:8,bottom:'calc(env(safe-area-inset-bottom, 0px) + 76px)',zIndex:100000,width:expanded?'min(340px, calc(100vw - 16px))':164,maxHeight:'62vh',overflow:'hidden',border:'1px solid rgba(155,185,220,.28)',borderRadius:12,background:'rgba(5,10,18,.92)',color:'#e6edf7',boxShadow:'0 8px 30px rgba(0,0,0,.34)',font:'11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace',backdropFilter:'blur(10px)'};
  const buttonStyle:React.CSSProperties={appearance:'none',border:0,background:'transparent',color:'inherit',font:'inherit',padding:'8px 9px',minHeight:34,cursor:'pointer'};
  const contextText=snapshot.ownedWebGLContexts+' context'+(snapshot.ownedWebGLContexts===1?'':'s');
@@ -57,8 +71,8 @@ function PanelContents(){
     WEBGL <span style={{opacity:.72}}>· {contextText}</span>
    </button>
    {expanded&&<>
-    <button type="button" style={buttonStyle} onClick={()=>setShowStartup(value=>!value)}>{showStartup?'WebGL':'Startup'}</button>
-    <button type="button" style={buttonStyle} onClick={()=>void (showStartup?copyStartupReport():copySnapshot())}>{copied?'Copied':showStartup?'Copy report':'Copy Snapshot'}</button>
+    <button type="button" style={buttonStyle} onClick={()=>{if(showRobustness){setShowRobustness(false);setShowStartup(false);}else if(showStartup){setShowStartup(false);setShowRobustness(true);}else setShowStartup(true);}}>{showRobustness?'WebGL':showStartup?'Robustness':'Startup'}</button>
+    <button type="button" style={buttonStyle} onClick={()=>void (showRobustness?copyRobustnessReport():showStartup?copyStartupReport():copySnapshot())}>{copied?'Copied':showRobustness?'Copy Robustness Report':showStartup?'Copy report':'Copy Snapshot'}</button>
    </>}
   </div>
   {expanded&&<div style={{maxHeight:'calc(62vh - 40px)',overflowY:'auto',padding:'0 10px 10px'}}>
@@ -77,6 +91,21 @@ function PanelContents(){
     </>:<div style={{opacity:.7}}>{import.meta.env.MODE==='preview'?'Preview manifest is unavailable.':'Build manifest is only emitted for the Mobile Preview build.'}</div>}
     <div style={{fontWeight:700,margin:'10px 0 5px'}}>RUNS BY MODE</div>
     {(['full','quick','none'] as const).map(mode=>{const runs=[...startupSnapshot.history,...(startupSnapshot.current?[startupSnapshot.current]:[])].filter(run=>run.mode===mode);return <div key={mode} style={{marginBottom:4}}>{mode}: {runs.length} run{runs.length===1?'':'s'}{runs.length?` · latest ${runs[runs.length-1].navigationType}`:''}</div>;})}
+   </>:showRobustness?<>
+    <div style={{opacity:.7,marginBottom:7}}>LONG-RUN · {robustnessSnapshot.webgl.appState} · {Math.round(robustnessSnapshot.runtimeDurationMs/1000)} s · resource counts are proxies, not VRAM</div>
+    <div>Contexts {robustnessSnapshot.webgl.ownedWebGLContexts} · renderers {robustnessSnapshot.webgl.aliveRendererCount}</div>
+    <div>Release intentional {robustnessSnapshot.webgl.intentionalContextReleaseCount} · unexpected context loss {robustnessSnapshot.webgl.unexpectedContextLossCount}</div>
+    <div>geo {robustnessSnapshot.webgl.totals.geometries} · tex {robustnessSnapshot.webgl.totals.textures} · prog {robustnessSnapshot.webgl.totals.programs}</div>
+    <div style={{marginTop:6}}>Visibility {robustnessSnapshot.eventCounts.visibility} · native {robustnessSnapshot.eventCounts['native-visibility']} · resize {robustnessSnapshot.eventCounts['viewport-resize']+robustnessSnapshot.eventCounts['visual-viewport-resize']} · orientation {robustnessSnapshot.eventCounts.orientationchange} · DPR {robustnessSnapshot.eventCounts['dpr-change']}</div>
+    <div>Canvas size {robustnessSnapshot.eventCounts['canvas-resize']} · context lost/restored {robustnessSnapshot.eventCounts['context-lost']}/{robustnessSnapshot.eventCounts['context-restored']}</div>
+    {robustnessSnapshot.webgl.renderers.map(renderer=><section key={renderer.id} style={{borderTop:'1px solid rgba(155,185,220,.18)',paddingTop:7,marginTop:6}}>
+     <div style={{fontWeight:700}}>{renderer.kind.toUpperCase()} <span style={{fontWeight:400,opacity:.75}}>{renderer.backend}</span></div>
+     <div>RAF {renderer.rafMode}{renderer.rafPending?' · pending':''} · active {renderer.active?'yes':'no'} · visible {renderer.visible?'yes':'no'}</div>
+     <div>geo {renderer.resources.geometries??'—'} · tex {renderer.resources.textures??'—'} · prog {renderer.resources.programs??'—'} · context lost/restored {renderer.contextLostCount}/{renderer.contextRestoredCount}</div>
+     <div>canvas {renderer.canvas.width}×{renderer.canvas.height} · DPR {renderer.canvas.dpr}</div>
+    </section>)}
+    <div style={{fontWeight:700,margin:'10px 0 5px'}}>RECENT EVENTS · {robustnessSnapshot.events.length}</div>
+    {robustnessSnapshot.events.slice(-8).map((event,index)=><div key={`${event.type}-${event.atMs}-${index}`} style={{borderTop:'1px solid rgba(155,185,220,.12)',padding:'4px 0'}}>+{Math.round(event.atMs)} ms · {event.type}{event.rendererKind?` · ${event.rendererKind}`:''}{event.dpr===undefined?'':` · DPR ${event.dpr}`}</div>)}
    </>:<>
    <div style={{opacity:.7,marginBottom:7}}>STATE {snapshot.appState} · resources are proxies, not VRAM</div>
    <div style={{opacity:.7,marginBottom:7}}>CONTEXT releases {snapshot.intentionalContextReleaseCount} · unexpected losses {snapshot.unexpectedContextLossCount}</div>

@@ -1,3 +1,5 @@
+import {recordRobustnessCanvasResize,recordRobustnessContextEvent} from './robustnessDiagnostics';
+
 export type WebGLRendererKind='intro'|'universe'|'asset-viewer'|'legacy-viewer';
 export type WebGLRendererBackend='webgl'|'software';
 export type WebGLRafMode='continuous'|'demand'|'paused'|'idle';
@@ -28,6 +30,8 @@ export type WebGLRendererDiagnostic={
  lastCpuRenderDurationMs:number|null;
  recentMaxCpuRenderDurationMs:number|null;
  rendersPerSecond:number;
+ contextLostCount:number;
+ contextRestoredCount:number;
 };
 export type WebGLDiagnosticsSnapshot={
  timestamp:string;
@@ -54,6 +58,8 @@ export type WebGLCanvasSource={
  height:number;
  clientWidth:number;
  clientHeight:number;
+ addEventListener?:(type:string,listener:EventListener)=>void;
+ removeEventListener?:(type:string,listener:EventListener)=>void;
 };
 export type RendererLifecycleInput={
  active:boolean;
@@ -83,6 +89,8 @@ export type WebGLDiagnosticsRegistry={
  formatSnapshot(snapshot?:WebGLDiagnosticsSnapshot):string;
  recordIntentionalContextRelease():void;
  recordUnexpectedContextLoss():void;
+ recordContextLost(id:string):void;
+ recordContextRestored(id:string):void;
  subscribeLifecycle(listener:(snapshot:WebGLDiagnosticsSnapshot)=>void):()=>void;
  activeCount():number;
 };
@@ -138,7 +146,7 @@ export function createWebGLDiagnosticsRegistry(enabled:boolean,now:()=>number=()
    rafMode:input.rafMode,rafPending:input.rafPending,
    canvas:{width:input.canvas.width,height:input.canvas.height,cssWidth:input.canvas.cssWidth,cssHeight:input.canvas.cssHeight,dpr:input.canvas.dpr},
    resources:copyResources(input.resources),totalRenderCount:0,lastRenderTimestamp:null,lastCpuRenderDurationMs:null,
-   recentMaxCpuRenderDurationMs:null,rendersPerSecond:0,renderTimes:[],recentDurations:[],
+   recentMaxCpuRenderDurationMs:null,rendersPerSecond:0,contextLostCount:0,contextRestoredCount:0,renderTimes:[],recentDurations:[],
   };
   entries.set(id,entry);
   notifyLifecycle();
@@ -171,6 +179,18 @@ export function createWebGLDiagnosticsRegistry(enabled:boolean,now:()=>number=()
  }
  function recordIntentionalContextRelease(){if(enabled)intentionalContextReleaseCount++;}
  function recordUnexpectedContextLoss(){if(enabled)unexpectedContextLossCount++;}
+ function recordContextLost(id:string){
+  const entry=entries.get(id);if(!entry)return;
+  entry.contextLostCount++;unexpectedContextLossCount++;
+  recordRobustnessContextEvent({type:'context-lost',rendererId:entry.id,rendererKind:entry.kind,backend:entry.backend});
+  notifyLifecycle();
+ }
+ function recordContextRestored(id:string){
+  const entry=entries.get(id);if(!entry)return;
+  entry.contextRestoredCount++;
+  recordRobustnessContextEvent({type:'context-restored',rendererId:entry.id,rendererKind:entry.kind,backend:entry.backend});
+  notifyLifecycle();
+ }
  function setAppState(state:string){if(!enabled)return;appState=safeAppState(state);}
  function getSnapshot(timestamp=new Date().toISOString()){
   const renderers=Array.from(entries.values()).map(entry=>{
@@ -181,7 +201,7 @@ export function createWebGLDiagnosticsRegistry(enabled:boolean,now:()=>number=()
     canvas:{width:entry.canvas.width,height:entry.canvas.height,cssWidth:entry.canvas.cssWidth,cssHeight:entry.canvas.cssHeight,dpr:entry.canvas.dpr},
     resources:copyResources(entry.resources),totalRenderCount:entry.totalRenderCount,lastRenderTimestamp:entry.lastRenderTimestamp,
     lastCpuRenderDurationMs:entry.lastCpuRenderDurationMs,recentMaxCpuRenderDurationMs:entry.recentMaxCpuRenderDurationMs,
-    rendersPerSecond:recentTimes.length,
+    rendersPerSecond:recentTimes.length,contextLostCount:entry.contextLostCount,contextRestoredCount:entry.contextRestoredCount,
    } satisfies WebGLRendererDiagnostic;
   }).sort((a,b)=>kindOrder.indexOf(a.kind)-kindOrder.indexOf(b.kind)||a.id.localeCompare(b.id));
   const byKind:Record<WebGLRendererKind,number>={intro:0,universe:0,'asset-viewer':0,'legacy-viewer':0};
@@ -212,6 +232,7 @@ export function createWebGLDiagnosticsRegistry(enabled:boolean,now:()=>number=()
    lines.push('RAF '+renderer.rafMode+' · pending '+renderer.rafPending+' · draw '+renderer.rendersPerSecond+'/s');
    lines.push('canvas '+renderer.canvas.width+'x'+renderer.canvas.height+' backing, '+renderer.canvas.cssWidth+'x'+renderer.canvas.cssHeight+' CSS, DPR '+renderer.canvas.dpr);
    lines.push('geo '+numberText(renderer.resources.geometries)+' · tex '+numberText(renderer.resources.textures)+' · prog '+numberText(renderer.resources.programs));
+   lines.push('context lost/restored '+renderer.contextLostCount+'/'+renderer.contextRestoredCount);
    lines.push('calls '+numberText(renderer.resources.calls)+' · triangles '+numberText(renderer.resources.triangles)+' · points '+numberText(renderer.resources.points)+' · lines '+numberText(renderer.resources.lines));
    lines.push('renders '+renderer.totalRenderCount+' · last CPU render '+numberText(renderer.lastCpuRenderDurationMs)+' ms · recent max '+numberText(renderer.recentMaxCpuRenderDurationMs)+' ms');
   }
@@ -220,7 +241,7 @@ export function createWebGLDiagnosticsRegistry(enabled:boolean,now:()=>number=()
   return lines.join('\n');
  }
  function subscribeLifecycle(listener:(snapshot:WebGLDiagnosticsSnapshot)=>void){if(!enabled)return()=>{};lifecycleListeners.add(listener);return()=>lifecycleListeners.delete(listener);}
- return {enabled,register,update,recordRender,unregister,setAppState,recordIntentionalContextRelease,recordUnexpectedContextLoss,subscribeLifecycle,getSnapshot,formatSnapshot,activeCount:()=>entries.size};
+ return {enabled,register,update,recordRender,unregister,setAppState,recordIntentionalContextRelease,recordUnexpectedContextLoss,recordContextLost,recordContextRestored,subscribeLifecycle,getSnapshot,formatSnapshot,activeCount:()=>entries.size};
 }
 
 const registry=createWebGLDiagnosticsRegistry(isWebGLDiagnosticsEnabled());
@@ -236,6 +257,16 @@ export type RendererDiagnosticHandle={
  recordRender(startedAt:number,endedAt:number):void;
  dispose():void;
 };
+export type RendererContextEventTarget={
+ addEventListener(type:'webglcontextlost'|'webglcontextrestored',listener:EventListener):void;
+ removeEventListener(type:'webglcontextlost'|'webglcontextrestored',listener:EventListener):void;
+};
+export function attachRendererContextDiagnostics(target:RendererContextEventTarget,diagnostics:Pick<WebGLDiagnosticsRegistry,'recordContextLost'|'recordContextRestored'>,id:string,backend:WebGLRendererBackend){
+ if(backend!=='webgl')return()=>{};
+ const lost:EventListener=()=>diagnostics.recordContextLost(id),restored:EventListener=()=>diagnostics.recordContextRestored(id);
+ target.addEventListener('webglcontextlost',lost);target.addEventListener('webglcontextrestored',restored);
+ return()=>{target.removeEventListener('webglcontextlost',lost);target.removeEventListener('webglcontextrestored',restored);};
+}
 export function createRendererDiagnosticHandle(options:{
  kind:WebGLRendererKind;
  backend:WebGLRendererBackend;
@@ -258,14 +289,25 @@ export function createRendererDiagnosticHandle(options:{
   canvas:initial.canvas,resources:initial.resources,
  });
  if(!id)return null;
- const refresh=()=>{
+ const eventTarget=options.canvas as WebGLCanvasSource&RendererContextEventTarget;
+ const removeContextListeners=typeof eventTarget.addEventListener==='function'&&typeof eventTarget.removeEventListener==='function'?attachRendererContextDiagnostics(eventTarget,registry,id,options.backend):()=>{};
+ let previousCanvasMetrics=initial.canvas;
+ const updateMetrics=()=>{
   const metrics=readMetrics();
+  if(metrics.canvas.width!==previousCanvasMetrics.width||metrics.canvas.height!==previousCanvasMetrics.height||metrics.canvas.cssWidth!==previousCanvasMetrics.cssWidth||metrics.canvas.cssHeight!==previousCanvasMetrics.cssHeight||metrics.canvas.dpr!==previousCanvasMetrics.dpr){
+   recordRobustnessCanvasResize({rendererId:id,rendererKind:options.kind,backend:options.backend,canvas:metrics.canvas});
+   previousCanvasMetrics=metrics.canvas;
+  }
+  return metrics;
+ };
+ const refresh=()=>{
+  const metrics=updateMetrics();
   registry.update(id,{...state,...metrics});
  };
  return {
   setLifecycle(next){state=next;refresh();},
   refresh,
-  recordRender(startedAt,endedAt){const metrics=readMetrics();registry.recordRender(id,startedAt,endedAt,metrics.resources);registry.update(id,{...state,canvas:metrics.canvas});},
-  dispose(){registry.unregister(id);},
+  recordRender(startedAt,endedAt){const metrics=updateMetrics();registry.recordRender(id,startedAt,endedAt,metrics.resources);registry.update(id,{...state,canvas:metrics.canvas});},
+  dispose(){removeContextListeners();registry.unregister(id);},
  };
 }

@@ -32,7 +32,8 @@ test('AssetViewer removes its context-lost listener before release and tears dow
  const canvas=cleanup.indexOf('renderer.domElement.remove()');
  assert.ok(lost>=0&&lost<controls&&controls<resources&&resources<diagnostics&&diagnostics<release&&release<canvas);
  assert.match(asset,/renderer instanceof T\.WebGLRenderer/);
- assert.match(asset,/recordUnexpectedWebGLContextLoss\(\);setError\('3D 显示已暂停/);
+ assert.match(asset,/const lost=\(e:Event\)=>\{e\.preventDefault\(\);setError\('3D 显示已暂停/);
+ assert.match(asset,/createRendererDiagnosticHandle/);
 });
 
 test('LegacyObjectViewer tears down resources before renderer release and is idempotent',()=>{
@@ -50,7 +51,8 @@ test('LegacyObjectViewer tears down resources before renderer release and is ide
 });
 
 test('Universe remains a persistent context owner and only records context loss',()=>{
- assert.match(universe,/recordUnexpectedWebGLContextLoss\(\);this\.onError\(\)/);
+ assert.match(universe,/private contextLost\s*=\s*\(e\s*:\s*Event\)\s*=>\s*\{\s*e\.preventDefault\(\);\s*this\.onError\(\);?\s*\}/);
+ assert.match(universe,/createRendererDiagnosticHandle/);
  assert.doesNotMatch(universe,/forceContextLoss\(/);
  assert.match(universe,/this\.renderer\.dispose\(\)/);
 });

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
  createWebGLDiagnosticsRegistry,
+ attachRendererContextDiagnostics,
  isWebGLDiagnosticsEnabledFromSearch,
  readWebGLResourceCounters,
 } from '../.test-runtime/webgl-diagnostics/webglDiagnostics.js';
@@ -13,6 +14,10 @@ const input=(kind,backend='webgl',overrides={})=>({
  resources:backend==='webgl'?resources(3,4,2,5,20,8,1):{geometries:null,textures:null,programs:null,calls:null,triangles:null,points:null,lines:null},
  ...overrides,
 });
+function eventTarget(){
+ const listeners=new Map();
+ return {addEventListener(type,listener){const group=listeners.get(type)||new Set();group.add(listener);listeners.set(type,group);},removeEventListener(type,listener){listeners.get(type)?.delete(listener);},emit(type){for(const listener of listeners.get(type)||[])listener(new Event(type));},listenerCount(){return [...listeners.values()].reduce((n,group)=>n+group.size,0);}};
+}
 
 test('register adds one alive renderer and unregister removes it',()=>{
  const registry=createWebGLDiagnosticsRegistry(true);
@@ -151,4 +156,30 @@ test('disabled registry ignores context lifecycle counters',()=>{
  const snapshot=registry.getSnapshot();
  assert.equal(snapshot.intentionalContextReleaseCount,0);
  assert.equal(snapshot.unexpectedContextLossCount,0);
+});
+
+test('renderer context event diagnostics count loss and restore, then detach cleanly',()=>{
+ const registry=createWebGLDiagnosticsRegistry(true),id=registry.register(input('universe')),canvas=eventTarget();
+ const detach=attachRendererContextDiagnostics(canvas,registry,id,'webgl');
+ assert.equal(canvas.listenerCount(),2);
+ canvas.emit('webglcontextlost');canvas.emit('webglcontextrestored');
+ let snapshot=registry.getSnapshot();
+ assert.equal(snapshot.unexpectedContextLossCount,1);
+ assert.equal(snapshot.renderers[0].contextLostCount,1);
+ assert.equal(snapshot.renderers[0].contextRestoredCount,1);
+ detach();assert.equal(canvas.listenerCount(),0);
+ canvas.emit('webglcontextlost');
+ snapshot=registry.getSnapshot();assert.equal(snapshot.unexpectedContextLossCount,1);
+});
+
+test('software renderer attaches no WebGL context event listeners',()=>{
+ const registry=createWebGLDiagnosticsRegistry(true),id=registry.register(input('intro','software')),canvas=eventTarget();
+ attachRendererContextDiagnostics(canvas,registry,id,'software');
+ assert.equal(canvas.listenerCount(),0);
+});
+
+test('repeated renderer mount and unmount returns the registry to baseline',()=>{
+ const registry=createWebGLDiagnosticsRegistry(true);
+ for(let i=0;i<40;i++){const id=registry.register(input('legacy-viewer'));assert.equal(registry.activeCount(),1);registry.unregister(id);}
+ assert.equal(registry.activeCount(),0);assert.equal(registry.getSnapshot().aliveRendererCount,0);
 });

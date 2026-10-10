@@ -7,7 +7,7 @@ import {AssetModel,PendingAsset} from '@/lib/assets/manifest';
 import {readAsset} from '@/lib/collection/data';
 import {loadAsset,disposeObject,pose,eased} from '@/lib/assets/runtime';
 import {canRunViewerRaf,createRafScheduler,hasViewerRafWork} from '@/lib/viewerRaf';
-import {createRendererDiagnosticHandle,recordIntentionalWebGLContextRelease,recordUnexpectedWebGLContextLoss} from '@/lib/perf/webglDiagnostics';
+import {createRendererDiagnosticHandle,recordIntentionalWebGLContextRelease} from '@/lib/perf/webglDiagnostics';
 import {createTransientWebGLRendererRelease} from '@/lib/perf/transientWebGLContext';
 export default function AssetViewer({model,inline=false,immersive=false,expanded:controlledExpanded,onExplode,onExpandedChange,onReady,preview}:{model:AssetModel;inline?:boolean;immersive?:boolean;expanded?:boolean;onExplode?:()=>void;onExpandedChange?:(value:boolean)=>void;onReady?:()=>void;preview?:PendingAsset}){
 const host=useRef<HTMLDivElement>(null),callbacks=useRef({onExplode,onExpandedChange,onReady}),reset=useRef(()=>{}),wakeFrame=useRef<()=>void>(()=>{}),hotspots=useRef<(HTMLButtonElement|null)[]>([]);const [part,setPart]=useState<number|null>(null),[internalExpanded,setInternalExpanded]=useState(!inline&&!immersive),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);const expanded=controlledExpanded??internalExpanded,changeExpanded=(value:boolean)=>{setInternalExpanded(value);onExpandedChange?.(value);};const state=useRef({part,expanded});useLayoutEffect(()=>{state.current={part,expanded};callbacks.current={onExplode,onExpandedChange,onReady};wakeFrame.current();},[part,expanded,onExplode,onExpandedChange,onReady]);
@@ -56,7 +56,7 @@ useEffect(()=>{
  const up=(e:PointerEvent)=>{pointers.delete(e.pointerId);if(moved||multiple||!asset||cameraTween)return;const rect=renderer.domElement.getBoundingClientRect();ray.setFromCamera(new T.Vector2((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1),camera);const hit=ray.intersectObjects(asset.parts.filter(p=>p.object.visible).map(p=>p.object),true)[0];if(!hit)return;const now=performance.now();if((inline||immersive)&&!state.current.expanded){if(now-lastTap<340&&Math.hypot(e.clientX-lastX,e.clientY-lastY)<28){lastTap=0;callbacks.current.onExplode?.();}else{lastTap=now;lastX=e.clientX;lastY=e.clientY;}return;}if(state.current.expanded&&state.current.part===null)setPart(hit.object.userData.assetPart);};
  const cancel=(e:PointerEvent)=>{pointers.delete(e.pointerId);moved=true;};
  const key=(e:KeyboardEvent)=>{if(e.key==='Enter'&&(inline||immersive)){e.preventDefault();callbacks.current.onExplode?.();}};
- const lost=(e:Event)=>{e.preventDefault();recordUnexpectedWebGLContextLoss();setError('3D 显示已暂停，请关闭后重新打开藏品。');};
+ const lost=(e:Event)=>{e.preventDefault();setError('3D 显示已暂停，请关闭后重新打开藏品。');};
  const pageVisibility=()=>{dirty=true;reconcileFrame();};
  const nativeVisibility=(event:Event)=>{nativeActive=(event as CustomEvent<boolean>).detail;dirty=true;reconcileFrame();};
  document.addEventListener('visibilitychange',pageVisibility);document.addEventListener('native-visibility',nativeVisibility);
