@@ -115,5 +115,18 @@ test('both viewers wire the shared scheduler to visibility, native state, change
   assert.ok(source.includes('removeEventListener(\'pointerdown\''),`${name} removes pointer listeners`);
  }
  assert.match(asset,/new IntersectionObserver/);assert.match(asset,/observer\.disconnect\(\)/);
- assert.match(legacy,/animationActive=modelMoving/);assert.match(legacy,/Math\.abs\(z-layer\.position\.z\)>.001/);
+ assert.match(legacy,/animationActive=modelMoving/);assert.match(legacy,/Math\.abs\(z-layer\.position\.z\)<=\.001/);
+});
+
+test('LegacyObjectViewer snaps settled procedural animation coordinates to exact targets',()=>{
+ const legacy=readFileSync('components/collection/LegacyObjectViewer.tsx','utf8');
+ assert.match(legacy,/layer\.position\.z=z/);
+ assert.match(legacy,/layer\.position\.x=x;layer\.position\.y=y/);
+
+ const target=1;let position=0,frames=0;
+ while(Math.abs(target-position)>.001&&frames<1000){position+=(target-position)*.1;frames++;}
+ assert.ok(frames<1000,'the existing lerp reaches the settle threshold');
+ assert.notEqual(position,target,'the lerp value can stop short of the exact target');
+ position=target;
+ assert.equal(position,target,'the final settle snap removes the residual error');
 });

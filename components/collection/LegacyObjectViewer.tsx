@@ -41,7 +41,9 @@ useEffect(()=>{
     let x=oldX,y=oldY;
     if(i>6){y=(i===7?1:-1)*(mode.current?2.05:1.3);x=mode.current?(i===7?.6:-.6):0;layer.position.y+=(y-layer.position.y)*.1;layer.position.x+=(x-layer.position.x)*.1;}
     if(layer.position.x!==oldX||layer.position.y!==oldY||layer.position.z!==oldZ)dirty=true;
-    if(Math.abs(z-layer.position.z)>.001||(i>6&&(Math.abs(x-layer.position.x)>.001||Math.abs(y-layer.position.y)>.001)))modelMoving=true;
+    const settled=Math.abs(z-layer.position.z)<=.001&&(i<=6||(Math.abs(x-layer.position.x)<=.001&&Math.abs(y-layer.position.y)<=.001));
+    if(settled){if(layer.position.z!==z||(i>6&&(layer.position.x!==x||layer.position.y!==y)))dirty=true;layer.position.z=z;if(i>6){layer.position.x=x;layer.position.y=y;}}
+    else modelMoving=true;
     const visible=selection.current===null||selection.current===i;if(layer.visible!==visible){layer.visible=visible;dirty=true;}
    });
    animationActive=modelMoving;if(animationActive)dirty=true;
