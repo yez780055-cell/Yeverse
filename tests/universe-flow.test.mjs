@@ -158,7 +158,7 @@ test('Intro remains mounted across startup Scene replacements and handoff waits 
  const introEffect=universeHomeSource.slice(universeHomeSource.indexOf('useLayoutEffect(()=>{\n  if(!introCanvas.current)'),universeHomeSource.indexOf(' },[]);',universeHomeSource.indexOf('useLayoutEffect(()=>{\n  if(!introCanvas.current)')));
  assert.match(introEffect,/new UniverseIntroScene\(introCanvas\.current,\(\)=>beginHandoffRef\.current\(\),fail,intro\)/);
  assert.match(introEffect,/opening\?\.dispose\(\);if\(introScene\.current===opening\)introScene\.current=null/);
- const sceneEffect=universeHomeSource.slice(universeHomeSource.indexOf('useLayoutEffect(()=>{\n  if(!canvas.current)'),universeHomeSource.indexOf(' },[sceneRevision,requestSceneRebuild]);'));
+ const sceneEffect=universeHomeSource.slice(universeHomeSource.indexOf('useLayoutEffect(()=>{\n  if(!canvas.current)'),universeHomeSource.indexOf(' },[sceneRevision,requestSceneRebuild,revealNoneStartup,finishBenchmarkCapture,rejectBenchmarkCapture]);'));
  assert.match(sceneEffect,/if\(!isCurrentSceneRevision\(generation,sceneGeneration\.current,disposed\)\|\|scene\.current!==instance\)return/);
  assert.match(sceneEffect,/firstFrameGeneration\.current=generation;revealNoneStartup\(\);if\(handoffRequested\.current\)beginHandoffRef\.current\(\)/);
  assert.match(universeHomeSource,/firstFrameGeneration\.current===sceneGeneration\.current/);
@@ -199,8 +199,8 @@ test('Intro unmount cleanup remains separate from Scene replacement, with a no-I
  assert.match(universeHomeSource,/return\(\)=>\{introEffectDisposed\.current=true;if\(handoffTimer\.current!==null\)\{window\.clearTimeout\(handoffTimer\.current\);handoffTimer\.current=null;\}opening\?\.dispose\(\);if\(introScene\.current===opening\)introScene\.current=null;\};/);
  const introCleanup=universeHomeSource.slice(universeHomeSource.indexOf('if(!introCanvas.current)'),universeHomeSource.indexOf(' },[]);',universeHomeSource.indexOf('if(!introCanvas.current)')));
  assert.doesNotMatch(introCleanup,/scene\.current|instance\?\.dispose/);
- const sceneCleanup=universeHomeSource.slice(universeHomeSource.indexOf('return()=>{disposed=true;if(!hasFormed.current'),universeHomeSource.indexOf(' },[sceneRevision,requestSceneRebuild]);'));
- assert.match(sceneCleanup,/instance\?\.dispose\(\)/);
+ const sceneCleanup=universeHomeSource.slice(universeHomeSource.indexOf('return()=>{disposed=true;if(!hasFormed.current'),universeHomeSource.indexOf(' },[sceneRevision,requestSceneRebuild,revealNoneStartup,finishBenchmarkCapture,rejectBenchmarkCapture]);'));
+ assert.match(sceneCleanup,/instance\.dispose\(\)/);
 });
 
 test('startup Scene replacements carry elapsed time into the new Scene without changing formation parameters',()=>{
@@ -255,7 +255,7 @@ test('UniverseHome rebuilds startup inputs immediately and binds first-frame rea
  assert.match(home,/firstFrameGeneration\.current=null;appliedSceneInputs\.current=next;setSceneRevision/);
  assert.equal((home.match(/if\(!isCurrentSceneRevision\(generation,sceneGeneration\.current,disposed\)\|\|scene\.current!==instance\)return/g)||[]).length,2,'both ready and first-frame callbacks reject stale scenes');
  assert.match(home,/firstFrameGeneration\.current===sceneGeneration\.current/);
- assert.match(home,/inputs=currentSceneInputs\.current;appliedSceneInputs\.current=inputs/);
+ assert.match(home,/inputs=currentSceneInputs\.current,[^;]*;appliedSceneInputs\.current=inputs/);
  assert.match(home,/initialElapsed=hasFormed\.current\?0:startupElapsed\.current/);
  assert.match(universeSceneSource,/initialElapsed=0\)\{/);
  assert.match(universeSceneSource,/this\.clock=this\.completed\?0:Math\.max\(0,initialElapsed\)/);
