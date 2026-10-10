@@ -160,7 +160,7 @@ test('Intro remains mounted across startup Scene replacements and handoff waits 
  assert.match(introEffect,/opening\?\.dispose\(\);if\(introScene\.current===opening\)introScene\.current=null/);
  const sceneEffect=universeHomeSource.slice(universeHomeSource.indexOf('useLayoutEffect(()=>{\n  if(!canvas.current)'),universeHomeSource.indexOf(' },[sceneRevision,requestSceneRebuild,revealNoneStartup,finishBenchmarkCapture,rejectBenchmarkCapture]);'));
  assert.match(sceneEffect,/if\(!isCurrentSceneRevision\(generation,sceneGeneration\.current,disposed\)\|\|scene\.current!==instance\)return/);
- assert.match(sceneEffect,/firstFrameGeneration\.current=generation;revealNoneStartup\(\);if\(handoffRequested\.current\)beginHandoffRef\.current\(\)/);
+ assert.match(sceneEffect,/firstFrameGeneration\.current=generation;recordStartupMark\('universe-first-frame',\{generation\}\);revealNoneStartup\(\);if\(handoffRequested\.current\)beginHandoffRef\.current\(\)/);
  assert.match(universeHomeSource,/firstFrameGeneration\.current===sceneGeneration\.current/);
  assert.match(universeHomeSource,/sceneGeneration\.current\+=1;firstFrameGeneration\.current=null/);
  const renderIndex=universeSceneSource.indexOf('this.renderer.render(this.scene,this.camera);');
@@ -185,16 +185,16 @@ test('handoff uses the unchanged 950ms full and 280ms quick fade, then disposes 
 });
 
 test('Universe final onReady only commits formed state and does not repeat Intro resource cleanup',()=>{
- const start=universeHomeSource.indexOf('startupElapsed.current=0;hasFormed.current=true;setFormed(true)');
+ const start=universeHomeSource.indexOf('startupElapsed.current=0;hasFormed.current=true;recordStartupMark');
  const end=universeHomeSource.indexOf('},()=>{if(!isCurrentSceneRevision',start);
  assert.ok(start>=0&&end>start,'Universe onReady callback found');
  const onReady=universeHomeSource.slice(start,end+1);
- assert.match(onReady,/startupElapsed\.current=0;hasFormed\.current=true;setFormed\(true\)/);
+ assert.match(onReady,/startupElapsed\.current=0;hasFormed\.current=true;recordStartupMark\('universe-formed',\{generation\}\);setFormed\(true\)/);
  assert.doesNotMatch(onReady,/opening|introScene\.current|\.dispose\(/);
 });
 
 test('Intro unmount cleanup remains separate from Scene replacement, with a no-Intro path',()=>{
- assert.match(universeHomeSource,/if\(intro!=='none'\)try\{opening=new UniverseIntroScene/);
+ assert.match(universeHomeSource,/if\(intro!=='none'\)try\{const started=performance\.now\(\);opening=new UniverseIntroScene/);
  assert.match(universeHomeSource,/setHandoff\(intro==='none'\);setIntroVisible\(intro!=='none'\);/);
  assert.match(universeHomeSource,/return\(\)=>\{introEffectDisposed\.current=true;if\(handoffTimer\.current!==null\)\{window\.clearTimeout\(handoffTimer\.current\);handoffTimer\.current=null;\}opening\?\.dispose\(\);if\(introScene\.current===opening\)introScene\.current=null;\};/);
  const introCleanup=universeHomeSource.slice(universeHomeSource.indexOf('if(!introCanvas.current)'),universeHomeSource.indexOf(' },[]);',universeHomeSource.indexOf('if(!introCanvas.current)')));
@@ -269,7 +269,7 @@ test('formation completion does not replace already-applied startup inputs, and 
  const completion=universeSceneSource.slice(universeSceneSource.indexOf('if(this.clock>=this.duration&&this.ready)'),universeSceneSource.indexOf('}else if(this.focusFlight)',universeSceneSource.indexOf('if(this.clock>=this.duration&&this.ready)')));
  assert.match(completion,/this\.completed=true;[\s\S]*?this\.onReady\(\);/);
  assert.doesNotMatch(completion,/notifySafeRebuildPoint/,'initial completion does not run a deferred rebuild safe point');
- assert.match(universeHomeSource,/if\(!isCurrentSceneRevision\(generation,sceneGeneration\.current,disposed\)\|\|scene\.current!==instance\)return;startupElapsed\.current=0;hasFormed\.current=true;setFormed\(true\)/);
+ assert.match(universeHomeSource,/if\(!isCurrentSceneRevision\(generation,sceneGeneration\.current,disposed\)\|\|scene\.current!==instance\)return;startupElapsed\.current=0;hasFormed\.current=true;recordStartupMark\('universe-formed',\{generation\}\);setFormed\(true\)/);
 });
 
 const universeCssSource=readFileSync('components/universe/universe.css','utf8');
@@ -314,8 +314,8 @@ test('none startup cover stays until repository, inputs, and latest Scene frame 
  let revealed=false,revealCount=0;
  const reveal=()=>{if(!revealed&&canRevealNoneStartupPresentation(ready)){revealed=true;revealCount++;}};
  reveal();reveal();assert.equal(revealCount,1,'the cover is removed once');
- assert.match(universeHomeSource,/noneStartupRevealedRef\.current=true;setNoneStartupRevealed\(true\)/);
- assert.match(universeHomeSource,/firstFrameGeneration\.current=generation;revealNoneStartup\(\)/);
+ assert.match(universeHomeSource,/noneStartupRevealedRef\.current=true;[^;]*;setNoneStartupRevealed\(true\)/);
+ assert.match(universeHomeSource,/firstFrameGeneration\.current=generation;recordStartupMark\('universe-first-frame',\{generation\}\);revealNoneStartup\(\)/);
  assert.match(universeHomeSource,/className="universe-startup-cover"/);
  assert.match(universeCssSource,/\.universe-startup-cover\{[^}]*background:#000;[^}]*transition:none/);
 });

@@ -3,6 +3,7 @@ import React from 'react';
 import {createRoot} from 'react-dom/client';
 import CollectionApp from './components/collection/CollectionApp';
 import './styles/globals.css';
+import {recordStartupMark} from './lib/perf/startupDiagnostics';
 if(import.meta.env.MODE==='preview'&&'serviceWorker'in navigator){
  const previewBase=new URL(import.meta.env.BASE_URL,location.origin).pathname;
  void navigator.serviceWorker.getRegistrations().then(async registrations=>{
@@ -31,4 +32,5 @@ if(import.meta.env.MODE==='preview'&&'serviceWorker'in navigator){
  }).catch(error=>console.warn('Preview service worker cleanup failed',error));
 }
 initializeNative();
+recordStartupMark('entry-module-evaluated');
 createRoot(document.getElementById('root')!).render(<React.StrictMode><CollectionApp/></React.StrictMode>);

@@ -79,6 +79,13 @@ jobs:
             const file = `dist-preview/${reference.slice(base.length).split(/[?#]/, 1)[0]}`;
             assert.ok(existsSync(file), `built HTML references a missing file: ${reference}`);
           }
+
+          const bundleReport = JSON.parse(readFileSync('dist-preview/startup-bundle-report.json', 'utf8'));
+          assert.equal(bundleReport.format, 'yeverse-startup-bundle-v1');
+          assert.ok(bundleReport.initialChunks.length > 0, 'startup bundle report has no initial chunks');
+          for (const chunk of [...bundleReport.initialChunks, ...bundleReport.dynamicChunks]) {
+            assert.ok(existsSync(`dist-preview/${chunk.file}`), `bundle report references missing output: ${chunk.file}`);
+          }
           NODE
 
       - name: Publish dist-preview to Yeverse-Preview
