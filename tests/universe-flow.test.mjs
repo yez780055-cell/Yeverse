@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {backNavigationAction,collectionCloseAction,collectionReturnContract,collectionStageFromUniverse,focusBackAction,galaxyActivationAction,isIntroHandoffReady,planetActivationAction,planetFocusBackAction,resetNavigationAction,sceneRebuildAction,shouldUniverseHandleBack} from '../.test-runtime/state-tests/lib/universe/flowState.js';
 
 test('the first Galaxy activation focuses it and the second activation enters it',()=>{
@@ -145,4 +146,60 @@ test('the Universe menu still consumes Back before scene navigation when no Coll
  ]);
  assert.equal(consumed,true);
  assert.deepEqual(calls,['close-menu']);
+});
+
+
+const universeHomeSource=readFileSync('components/universe/UniverseHome.tsx','utf8');
+const introSceneSource=readFileSync('components/universe/IntroScene.ts','utf8');
+const universeSceneSource=readFileSync('components/universe/scene.ts','utf8');
+
+test('Intro stays alive until the requested handoff and existing fade boundary, then disposes before Universe formation completes',()=>{
+ const handoff=universeHomeSource.slice(universeHomeSource.indexOf('const beginHandoff='),universeHomeSource.indexOf('const startUniverse='));
+ assert.ok(handoff.includes('if(!handoffState())return;setHandoff(true);handoffTimer=window.setTimeout('));
+ assert.equal(handoff.slice(0,handoff.indexOf('handoffTimer=window.setTimeout(')).includes('opening?.dispose()'),false,'Intro must remain allocated until the existing fade timer finishes');
+ assert.match(handoff,/if\(!handoffState\(\)\)return;opening\?\.setActive\(false\);setIntroVisible\(false\);opening\?\.dispose\(\);opening=undefined;introScene\.current=null;/);
+ assert.match(handoff,/intro==='full'\?950:280/);
+ const fadeMs={full:950,quick:280};
+ const sceneTimings={full:{baseline:7.8,duration:9.65},quick:{baseline:2.3,duration:2.3}};
+ assert.match(universeSceneSource,/this\.baselineDuration=this\.reduced\?\.8:introMode==='full'\?7\.8:2\.3;this\.handoffTime=this\.baselineDuration\*\.47;/);
+ assert.match(universeSceneSource,/this\.duration=this\.reduced\?\.8:introMode==='full'\?9\.65:2\.3;/);
+ for(const mode of ['full','quick']){
+  const timing=sceneTimings[mode],disposeAt=timing.baseline*.47+fadeMs[mode]/1000;
+  assert.ok(disposeAt<timing.duration,mode+' Intro cleanup must precede Universe formed/onReady in the existing normal-motion timeline');
+ }
+});
+
+test('Universe final onReady only commits formed state and does not repeat Intro resource cleanup',()=>{
+ const start=universeHomeSource.indexOf('()=>{hasFormed.current=true;');
+ const end=universeHomeSource.indexOf('},()=>{universeFrameReady=true;',start);
+ assert.ok(start>=0&&end>start,'Universe onReady callback found');
+ const onReady=universeHomeSource.slice(start,end+1);
+ assert.match(onReady,/hasFormed\.current=true;setFormed\(true\);/);
+ assert.doesNotMatch(onReady,/opening|introScene\.current|\.dispose\(/);
+});
+
+test('Intro unmount cleanup remains in place and no-Intro startup does not create an IntroScene',()=>{
+ assert.match(universeHomeSource,/if\(intro!=='none'\)try\{opening=new UniverseIntroScene/);
+ assert.match(universeHomeSource,/setHandoff\(intro==='none'\);setIntroVisible\(intro!=='none'\);/);
+ assert.match(universeHomeSource,/return\(\)=>\{disposed=true;clearTimeout\(handoffTimer\);opening\?\.dispose\(\);instance\?\.dispose\(\);introScene\.current=null;scene\.current=null;\};/);
+});
+
+test('Intro dispose is idempotent and releases its scheduled work, observers, listeners, and owned Three resources',()=>{
+ assert.match(introSceneSource,/dispose\(\)\{if\(this\.disposed\)return;this\.disposed=true;/);
+ for(const cleanup of [
+  'clearTimeout(this.emissionTimeout)',
+  'cancelAnimationFrame(this.frame)',
+  'this.observer.disconnect()',
+  "document.removeEventListener('visibilitychange',this.schedule)",
+  "document.removeEventListener('native-visibility',this.nativeHandler)",
+  "this.canvas.removeEventListener('webglcontextlost',this.contextLost)",
+  'this.geometries.forEach(g=>g.dispose())',
+  'this.materials.forEach(m=>m.dispose())',
+  '.material.dispose()',
+  'this.core.material.map?.dispose()',
+  'this.texture?.dispose()',
+  'this.nebula?.geometry.dispose()',
+  'this.nebula?.material.dispose()',
+  'this.renderer.dispose()',
+ ])assert.ok(introSceneSource.includes(cleanup),cleanup+' cleanup retained');
 });
