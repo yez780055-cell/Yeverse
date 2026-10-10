@@ -160,7 +160,7 @@ export function createWebGLDiagnosticsRegistry(enabled:boolean,now:()=>number=()
   entry.alive=false;
   entries.delete(id);
  }
- function setAppState(state:string){appState=safeAppState(state);}
+ function setAppState(state:string){if(!enabled)return;appState=safeAppState(state);}
  function getSnapshot(timestamp=new Date().toISOString()){
   const renderers=Array.from(entries.values()).map(entry=>{
    const recentTimes=entry.renderTimes.filter(time=>now()-time<=1000);

@@ -85,8 +85,10 @@ test('diagnostics are disabled without perf=1 and register no entries',()=>{
  assert.equal(isWebGLDiagnosticsEnabledFromSearch('?perf=0'),false);
  assert.equal(isWebGLDiagnosticsEnabledFromSearch('?perf=1'),true);
  const registry=createWebGLDiagnosticsRegistry(false);
+ registry.setAppState('index');
  assert.equal(registry.register(input('universe')),null);
  assert.equal(registry.getSnapshot().aliveRendererCount,0);
+ assert.equal(registry.getSnapshot().appState,'other');
 });
 
 test('unregistered renderer records are not retained by the registry',()=>{

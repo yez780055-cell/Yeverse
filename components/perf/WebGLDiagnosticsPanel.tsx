@@ -42,6 +42,7 @@ function PanelContents(){
    {snapshot.renderers.length===0&&<div style={{opacity:.7}}>No active renderer</div>}
    {snapshot.renderers.map(renderer=><section key={renderer.id} style={{borderTop:'1px solid rgba(155,185,220,.18)',paddingTop:7,marginTop:6}}>
     <div style={{fontWeight:700}}>{renderer.kind.toUpperCase()} <span style={{fontWeight:400,opacity:.75}}>{renderer.backend}</span></div>
+    <div>active {renderer.active?'yes':'no'} · visible {renderer.visible?'yes':'no'}</div>
     <div>RAF {renderer.rafMode}{renderer.rafPending?' · pending':''} · draw {renderer.rendersPerSecond}/s</div>
     <div>geo {renderer.resources.geometries??'—'} · tex {renderer.resources.textures??'—'} · prog {renderer.resources.programs??'—'}</div>
     <div>calls {renderer.resources.calls??'—'} · {renderer.canvas.width}×{renderer.canvas.height} · DPR {renderer.canvas.dpr}</div>
