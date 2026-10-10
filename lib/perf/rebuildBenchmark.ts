@@ -173,3 +173,103 @@ export function formatRebuildBenchmarkReport(batches:readonly RebuildBenchmarkBa
  }
  return lines.join('\n');
 }
+
+const COMPACT_STRUCTURAL_SCENARIOS=[
+ {scenario:'cold-build',label:'cold-build'},
+ {scenario:'add-item',label:'add-item'},
+ {scenario:'delete-item',label:'delete-item'},
+ {scenario:'move-item',label:'move-galaxy'},
+ {scenario:'add-galaxy',label:'add-galaxy'},
+] as const satisfies ReadonlyArray<{scenario:RebuildBenchmarkScenario;label:string}>;
+
+function baseScaleForBatch(batch:RebuildBenchmarkBatch){
+ let items=batch.itemCount,galaxies=batch.galaxyCount;
+ if(batch.scenario==='add-item')items-=1;
+ if(batch.scenario==='delete-item')items+=1;
+ if(batch.scenario==='add-galaxy')galaxies-=1;
+ return REBUILD_BENCHMARK_SCALES.find(scale=>scale.items===items&&scale.galaxies===galaxies);
+}
+
+function percentilePair(values:readonly number[]){
+ const {median,p90}=summarizeBenchmarkValues(values);
+ return `${median.toFixed(2)}/${p90.toFixed(2)} ms`;
+}
+
+function resourceMedian(values:readonly RebuildResourceSnapshot[],key:keyof RebuildResourceSnapshot){
+ if(values.length===0)return '—';
+ return String(Math.round(summarizeBenchmarkValues(values.map(value=>value[key])).median));
+}
+
+function compactResourceValues(values:readonly RebuildResourceSnapshot[]){
+ return `ctx/geo/tex/prog ${resourceMedian(values,'ownedWebGLContexts')}/${resourceMedian(values,'geometries')}/${resourceMedian(values,'textures')}/${resourceMedian(values,'programs')}`;
+}
+
+/** Concise phone-friendly report derived only from completed steady samples. */
+export function formatRebuildBenchmarkCompactSummary(batches:readonly RebuildBenchmarkBatch[]){
+ if(batches.length===0)return '';
+ const lines=[
+  'YEVERSE STRUCTURAL REBUILD · COMPACT SUMMARY',
+  'Steady samples only · median/p90 · CPU-side wall time, not GPU time · counters are resource proxies, not VRAM',
+ ];
+ const allMeasurements:RebuildBenchmarkMeasurement[]=[];
+ const metadataMeasurements:MetadataControlMeasurement[]=[];
+ const structuralMedians=new Map<number,number[]>();
+ const coldMedians=new Map<number,number>();
+ for(const scale of REBUILD_BENCHMARK_SCALES){
+  lines.push('',`${scale.items} items / ${scale.galaxies} galaxies`);
+  for(const {scenario,label} of COMPACT_STRUCTURAL_SCENARIOS){
+   const batch=batches.find(value=>value.scenario===scenario&&baseScaleForBatch(value)?.items===scale.items);
+   if(!batch){lines.push(`${label} · not measured`);continue;}
+   const steady=batch.steady as RebuildBenchmarkMeasurement[];
+   if(steady.length===0){lines.push(`${label} · not measured`);continue;}
+   allMeasurements.push(...steady);
+   const constructor=percentilePair(steady.map(sample=>sample.constructorDurationMs));
+   const firstFrame=percentilePair(steady.map(sample=>sample.firstVisibleFrameMs));
+   const total=percentilePair(steady.map(sample=>sample.totalRebuildWallTimeMs));
+   const peak={
+    contexts:Math.max(...steady.map(sample=>sample.resourcesPeak.ownedWebGLContexts)),
+    geometries:Math.max(...steady.map(sample=>sample.resourcesPeak.geometries)),
+    textures:Math.max(...steady.map(sample=>sample.resourcesPeak.textures)),
+    programs:Math.max(...steady.map(sample=>sample.resourcesPeak.programs)),
+   };
+   const overlap=steady.some(sample=>sample.oldAndNewSceneOverlap);
+   lines.push(`${label} · constructor ${constructor} · first frame ${firstFrame} · total ${total} · peak ctx/geo/tex/prog ${peak.contexts}/${peak.geometries}/${peak.textures}/${peak.programs} · old+new overlap ${overlap?'yes':'no'}`);
+   const medianTotal=summarizeBenchmarkValues(steady.map(sample=>sample.totalRebuildWallTimeMs)).median;
+   if(scenario==='cold-build')coldMedians.set(scale.items,medianTotal);
+   else structuralMedians.set(scale.items,[...(structuralMedians.get(scale.items)??[]),medianTotal]);
+  }
+  const metadata=batches.find(value=>value.scenario==='metadata-only'&&baseScaleForBatch(value)?.items===scale.items);
+  if(!metadata){lines.push('metadata-only · not measured');continue;}
+  const steady=metadata.steady as MetadataControlMeasurement[];
+  if(steady.length===0){lines.push('metadata-only · not measured');continue;}
+  metadataMeasurements.push(...steady);
+  const triggered=steady.filter(sample=>sample.fullRebuildTriggered).length;
+  lines.push(`metadata-only · refresh ${percentilePair(steady.map(sample=>sample.refreshDurationMs))} · full rebuild ${triggered}/${steady.length} · before ${compactResourceValues(steady.map(sample=>sample.resourcesBefore))} · after ${compactResourceValues(steady.map(sample=>sample.resourcesAfter))}`);
+ }
+ const coldSummary=REBUILD_BENCHMARK_SCALES.map(scale=>`${scale.items}: ${coldMedians.has(scale.items)?coldMedians.get(scale.items)!.toFixed(2)+' ms':'—'}`).join(' · ');
+ const structuralSummary=REBUILD_BENCHMARK_SCALES.map(scale=>{
+  const values=structuralMedians.get(scale.items)??[];
+  return `${scale.items}: ${values.length?`${Math.min(...values).toFixed(2)}–${Math.max(...values).toFixed(2)} ms`:'—'}`;
+ }).join(' · ');
+ const maxContexts=allMeasurements.length?Math.max(...allMeasurements.map(sample=>sample.resourcesPeak.ownedWebGLContexts)):null;
+ const overlap=allMeasurements.some(sample=>sample.oldAndNewSceneOverlap);
+ const metadataTriggered=metadataMeasurements.filter(sample=>sample.fullRebuildTriggered).length;
+ lines.push('',`SUMMARY`,`cold-build total median · ${coldSummary}`,`structural total median range · ${structuralSummary}`,`maximum peak contexts · ${maxContexts??'—'}`,`old + new scene overlap · ${allMeasurements.length?(overlap?'yes':'no'):'—'}`,`metadata full rebuild · ${metadataMeasurements.length?`${metadataTriggered}/${metadataMeasurements.length} ${metadataTriggered?'(yes)':'(no)'}`:'—'}`);
+ return lines.join('\n');
+}
+
+export function canExportRebuildBenchmarkReport(batches:readonly RebuildBenchmarkBatch[]){return batches.length>0;}
+
+function localReportTimestamp(date:Date){
+ const pad=(value:number)=>String(value).padStart(2,'0');
+ return `${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+
+export function createRebuildBenchmarkFullReportDownload(batches:readonly RebuildBenchmarkBatch[],date=new Date()){
+ if(!canExportRebuildBenchmarkReport(batches))return null;
+ return {
+  filename:`yeverse-rebuild-benchmark-${localReportTimestamp(date)}.txt`,
+  content:formatRebuildBenchmarkReport(batches,date.toISOString()),
+  mimeType:'text/plain;charset=utf-8',
+ };
+}

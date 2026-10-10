@@ -2,7 +2,8 @@ import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {getWebGLDiagnosticsSnapshot} from '@/lib/perf/webglDiagnostics';
 import {
- applySyntheticRebuildScenario,createSyntheticRebuildDataset,formatRebuildBenchmarkReport,
+ applySyntheticRebuildScenario,canExportRebuildBenchmarkReport,createRebuildBenchmarkFullReportDownload,
+ createSyntheticRebuildDataset,formatRebuildBenchmarkCompactSummary,formatRebuildBenchmarkReport,
  REBUILD_BENCHMARK_SCALES,REBUILD_BENCHMARK_SCENARIOS,
  type MetadataControlMeasurement,type RebuildBenchmarkBatch,type RebuildBenchmarkDataset,
  type RebuildBenchmarkMeasurement,type RebuildBenchmarkScenario,
@@ -36,7 +37,7 @@ function delay(ms:number,signal:AbortSignal){
 
 export default function UniverseRebuildBenchmarkPanel({enabled,canRun,applyDataset,restoreOriginal,onRunningChange}:Props){
  const runningRef=useRef(false),controllerRef=useRef<AbortController|null>(null);
- const [running,setRunning]=useState(false),[expanded,setExpanded]=useState(false),[progress,setProgress]=useState('Ready'),[batches,setBatches]=useState<RebuildBenchmarkBatch[]>([]),[error,setError]=useState(''),[copied,setCopied]=useState(false);
+ const [running,setRunning]=useState(false),[expanded,setExpanded]=useState(false),[progress,setProgress]=useState('Ready'),[batches,setBatches]=useState<RebuildBenchmarkBatch[]>([]),[error,setError]=useState(''),[copied,setCopied]=useState(false),[compactCopied,setCompactCopied]=useState(false),[downloaded,setDownloaded]=useState(false),[compactSummary,setCompactSummary]=useState('');
  useEffect(()=>()=>controllerRef.current?.abort(),[]);
  if(!enabled||typeof document==='undefined')return null;
 
@@ -47,7 +48,7 @@ export default function UniverseRebuildBenchmarkPanel({enabled,canRun,applyDatas
    setError('WebGL renderer unavailable. Benchmark was not run.');
    return;
   }
-  runningRef.current=true;setRunning(true);setExpanded(true);setError('');setBatches([]);onRunningChange(true);
+  runningRef.current=true;setRunning(true);setExpanded(true);setError('');setBatches([]);setCopied(false);setCompactCopied(false);setDownloaded(false);setCompactSummary('');onRunningChange(true);
   const controller=new AbortController();controllerRef.current=controller;
   const completed:RebuildBenchmarkBatch[]=[];
   try{
@@ -104,6 +105,7 @@ export default function UniverseRebuildBenchmarkPanel({enabled,canRun,applyDatas
  }
 
  async function copyReport(){
+  if(!canExportRebuildBenchmarkReport(batches))return;
   const report=formatRebuildBenchmarkReport(batches);
   let didCopy=false;
   try{if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(report);else throw new Error('Clipboard API unavailable');didCopy=true;}
@@ -111,6 +113,26 @@ export default function UniverseRebuildBenchmarkPanel({enabled,canRun,applyDatas
   setCopied(didCopy);if(!didCopy)setError('Clipboard copy failed. The report remains visible below.');
   window.setTimeout(()=>setCopied(false),1500);
  }
+ async function copyCompactSummary(){
+  if(!canExportRebuildBenchmarkReport(batches))return;
+  const summary=formatRebuildBenchmarkCompactSummary(batches);
+  setCompactSummary(summary);
+  let didCopy=false;
+  try{if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(summary);else throw new Error('Clipboard API unavailable');didCopy=true;}
+  catch{const field=document.createElement('textarea');field.value=summary;field.setAttribute('readonly','');field.style.position='fixed';field.style.opacity='0';document.body.appendChild(field);field.select();try{didCopy=document.execCommand('copy');}catch{didCopy=false;}field.remove();}
+  setCompactCopied(didCopy);if(!didCopy)setError('Clipboard copy failed. The compact summary is shown below.');
+  window.setTimeout(()=>setCompactCopied(false),1500);
+ }
+ function downloadFullReport(){
+  const report=createRebuildBenchmarkFullReportDownload(batches);
+  if(!report)return;
+  const objectUrl=URL.createObjectURL(new Blob([report.content],{type:report.mimeType}));
+  const link=document.createElement('a');link.href=objectUrl;link.download=report.filename;link.style.display='none';
+  document.body.appendChild(link);link.click();link.remove();
+  window.setTimeout(()=>URL.revokeObjectURL(objectUrl),1000);
+  setDownloaded(true);window.setTimeout(()=>setDownloaded(false),1500);
+ }
+ const hasResults=canExportRebuildBenchmarkReport(batches);
  const button:React.CSSProperties={border:'1px solid rgba(190,210,240,.28)',borderRadius:9,background:'rgba(7,12,20,.88)',color:'#eef4ff',padding:'9px 12px',font:'12px/1.3 ui-monospace,monospace',minHeight:40,cursor:'pointer'};
  const style:React.CSSProperties={position:'fixed',left:8,bottom:'calc(env(safe-area-inset-bottom, 0px) + 76px)',zIndex:100001,maxWidth:'min(440px,calc(100vw - 16px))',maxHeight:'70vh',overflow:'auto',border:'1px solid rgba(155,185,220,.28)',borderRadius:12,background:'rgba(5,10,18,.94)',color:'#e6edf7',boxShadow:'0 8px 30px rgba(0,0,0,.34)',padding:10,font:'11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace',backdropFilter:'blur(10px)'};
  return createPortal(<>
@@ -120,13 +142,16 @@ export default function UniverseRebuildBenchmarkPanel({enabled,canRun,applyDatas
    <button type="button" style={button} onClick={()=>setExpanded(value=>!value)} aria-expanded={expanded}>REBUILD BENCHMARK{running?' · RUNNING':''}</button>
    {!running&&<button type="button" style={button} disabled={!canRun} onClick={()=>void run()}>Run synthetic benchmark</button>}
    {running&&<button type="button" style={button} onClick={()=>controllerRef.current?.abort()}>Cancel</button>}
-   {batches.length>0&&<button type="button" style={button} onClick={()=>void copyReport()}>{copied?'Copied':'Copy Rebuild Benchmark'}</button>}
+   <button type="button" style={{...button,opacity:hasResults?1:.48,cursor:hasResults?'pointer':'not-allowed'}} disabled={!hasResults} onClick={()=>void copyCompactSummary()}>{compactCopied?'Copied':'Copy Compact Summary'}</button>
+   <button type="button" style={{...button,opacity:hasResults?1:.48,cursor:hasResults?'pointer':'not-allowed'}} disabled={!hasResults} onClick={downloadFullReport}>{downloaded?'Downloaded':'Download Full Report'}</button>
+   <button type="button" style={{...button,opacity:hasResults?1:.48,cursor:hasResults?'pointer':'not-allowed'}} disabled={!hasResults} onClick={()=>void copyReport()}>{copied?'Copied':'Copy Rebuild Benchmark'}</button>
   </div>
   {expanded&&<div style={{marginTop:8}}>
    <div style={{opacity:.75}}>Synthetic in-memory data · no IndexedDB writes · 5 steady samples per scenario · performance.now() CPU wall time, not GPU time.</div>
    <div style={{marginTop:6}}>Status: {progress}</div>
    {!canRun&&!running&&<div style={{marginTop:6,opacity:.78}}>Run from the formed Universe home while WebGL is available.</div>}
    {error&&<div role="alert" style={{marginTop:6,color:'#ffb4b4',whiteSpace:'pre-wrap'}}>{error}</div>}
+   {compactSummary&&!compactCopied&&error&&<pre style={{margin:'8px 0 0',whiteSpace:'pre-wrap',overflowWrap:'anywhere',font:'inherit'}}>{compactSummary}</pre>}
    {batches.length>0&&<pre style={{margin:'8px 0 0',whiteSpace:'pre-wrap',overflowWrap:'anywhere',font:'inherit'}}>{formatRebuildBenchmarkReport(batches)}</pre>}
    {running&&<div aria-live="polite" style={{marginTop:6,opacity:.8}}>The current synchronous Scene constructor cannot be interrupted; Cancel stops at the next safe benchmark step and restores the original collection scene.</div>}
   </div>}
