@@ -38,6 +38,7 @@ function PanelContents(){
   </div>
   {expanded&&<div style={{maxHeight:'calc(62vh - 40px)',overflowY:'auto',padding:'0 10px 10px'}}>
    <div style={{opacity:.7,marginBottom:7}}>STATE {snapshot.appState} · resources are proxies, not VRAM</div>
+   <div style={{opacity:.7,marginBottom:7}}>CONTEXT releases {snapshot.intentionalContextReleaseCount} · unexpected losses {snapshot.unexpectedContextLossCount}</div>
    <div style={{marginBottom:8}}>ALIVE {snapshot.aliveRendererCount} · geo {snapshot.totals.geometries} · tex {snapshot.totals.textures} · prog {snapshot.totals.programs}</div>
    {snapshot.renderers.length===0&&<div style={{opacity:.7}}>No active renderer</div>}
    {snapshot.renderers.map(renderer=><section key={renderer.id} style={{borderTop:'1px solid rgba(155,185,220,.18)',paddingTop:7,marginTop:6}}>

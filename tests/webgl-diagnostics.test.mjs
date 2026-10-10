@@ -123,3 +123,23 @@ test('disabled singleton snapshot starts empty in a non-browser runtime',async()
  const module=await import('../.test-runtime/webgl-diagnostics/webglDiagnostics.js');
  assert.equal(module.getWebGLDiagnosticsSnapshot().aliveRendererCount,0);
 });
+
+test('context lifecycle counters distinguish intentional releases from unexpected losses',()=>{
+ const registry=createWebGLDiagnosticsRegistry(true);
+ registry.recordIntentionalContextRelease();registry.recordIntentionalContextRelease();
+ registry.recordUnexpectedContextLoss();
+ const snapshot=registry.getSnapshot('2026-01-01T00:00:00.000Z');
+ assert.equal(snapshot.intentionalContextReleaseCount,2);
+ assert.equal(snapshot.unexpectedContextLossCount,1);
+ const formatted=registry.formatSnapshot(snapshot);
+ assert.match(formatted,/intentional releases 2/);
+ assert.match(formatted,/unexpected losses 1/);
+});
+
+test('disabled registry ignores context lifecycle counters',()=>{
+ const registry=createWebGLDiagnosticsRegistry(false);
+ registry.recordIntentionalContextRelease();registry.recordUnexpectedContextLoss();
+ const snapshot=registry.getSnapshot();
+ assert.equal(snapshot.intentionalContextReleaseCount,0);
+ assert.equal(snapshot.unexpectedContextLossCount,0);
+});

@@ -37,6 +37,8 @@ export type WebGLDiagnosticsSnapshot={
  byKind:Record<WebGLRendererKind,number>;
  totals:{geometries:number;textures:number;programs:number};
  renderers:WebGLRendererDiagnostic[];
+ intentionalContextReleaseCount:number;
+ unexpectedContextLossCount:number;
 };
 export type WebGLRendererInfoLike={
  memory?:{geometries?:number;textures?:number};
@@ -79,6 +81,8 @@ export type WebGLDiagnosticsRegistry={
  setAppState(state:string):void;
  getSnapshot(timestamp?:string):WebGLDiagnosticsSnapshot;
  formatSnapshot(snapshot?:WebGLDiagnosticsSnapshot):string;
+ recordIntentionalContextRelease():void;
+ recordUnexpectedContextLoss():void;
  activeCount():number;
 };
 
@@ -122,7 +126,7 @@ function numberText(value:number|null){
 
 export function createWebGLDiagnosticsRegistry(enabled:boolean,now:()=>number=()=>typeof performance!=='undefined'?performance.now():Date.now()):WebGLDiagnosticsRegistry{
  const entries=new Map<string,RegistryEntry>();
- let sequence=0,appState:WebGLDiagnosticsAppState='other';
+ let sequence=0,appState:WebGLDiagnosticsAppState='other',intentionalContextReleaseCount=0,unexpectedContextLossCount=0;
  function register(input:RegistrationInput){
   if(!enabled)return null;
   const id=input.kind+'-'+(++sequence);
@@ -160,6 +164,8 @@ export function createWebGLDiagnosticsRegistry(enabled:boolean,now:()=>number=()
   entry.alive=false;
   entries.delete(id);
  }
+ function recordIntentionalContextRelease(){if(enabled)intentionalContextReleaseCount++;}
+ function recordUnexpectedContextLoss(){if(enabled)unexpectedContextLossCount++;}
  function setAppState(state:string){if(!enabled)return;appState=safeAppState(state);}
  function getSnapshot(timestamp=new Date().toISOString()){
   const renderers=Array.from(entries.values()).map(entry=>{
@@ -181,7 +187,7 @@ export function createWebGLDiagnosticsRegistry(enabled:boolean,now:()=>number=()
     geometries:sum(renderers.map(renderer=>renderer.resources.geometries)),
     textures:sum(renderers.map(renderer=>renderer.resources.textures)),
     programs:sum(renderers.map(renderer=>renderer.resources.programs)),
-   },renderers,
+   },renderers,intentionalContextReleaseCount,unexpectedContextLossCount,
   } satisfies WebGLDiagnosticsSnapshot;
  }
  function formatSnapshot(snapshot=getSnapshot()){
@@ -190,6 +196,7 @@ export function createWebGLDiagnosticsRegistry(enabled:boolean,now:()=>number=()
    'timestamp: '+snapshot.timestamp,
    'app state: '+snapshot.appState,
    'OWNED WEBGL CONTEXTS: '+snapshot.ownedWebGLContexts,
+   'context lifecycle: intentional releases '+snapshot.intentionalContextReleaseCount+' · unexpected losses '+snapshot.unexpectedContextLossCount,
    'alive renderers: '+snapshot.aliveRendererCount+' (intro '+snapshot.byKind.intro+', universe '+snapshot.byKind.universe+', asset-viewer '+snapshot.byKind['asset-viewer']+', legacy-viewer '+snapshot.byKind['legacy-viewer']+')',
    'TOTAL THREE RESOURCE PROXIES (not VRAM MB): geo '+snapshot.totals.geometries+', tex '+snapshot.totals.textures+', prog '+snapshot.totals.programs,
   ];
@@ -207,13 +214,15 @@ export function createWebGLDiagnosticsRegistry(enabled:boolean,now:()=>number=()
   lines.push('Counters are Three.js/WebGL resource proxies, not measured VRAM. CPU render duration is performance.now() around renderer.render(), not GPU frame time.');
   return lines.join('\n');
  }
- return {enabled,register,update,recordRender,unregister,setAppState,getSnapshot,formatSnapshot,activeCount:()=>entries.size};
+ return {enabled,register,update,recordRender,unregister,setAppState,recordIntentionalContextRelease,recordUnexpectedContextLoss,getSnapshot,formatSnapshot,activeCount:()=>entries.size};
 }
 
 const registry=createWebGLDiagnosticsRegistry(isWebGLDiagnosticsEnabled());
 export function getWebGLDiagnosticsSnapshot(){return registry.getSnapshot();}
 export function formatWebGLDiagnosticsSnapshot(snapshot?:WebGLDiagnosticsSnapshot){return registry.formatSnapshot(snapshot);}
 export function setWebGLDiagnosticsAppState(state:string){registry.setAppState(state);}
+export function recordIntentionalWebGLContextRelease(){registry.recordIntentionalContextRelease();}
+export function recordUnexpectedWebGLContextLoss(){registry.recordUnexpectedContextLoss();}
 export type RendererDiagnosticHandle={
  setLifecycle(state:RendererLifecycleInput):void;
  refresh():void;

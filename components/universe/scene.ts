@@ -12,7 +12,7 @@ import {getGalaxyVisualScale,updateUniverseVisuals} from './UniverseVisualUpdate
 import {canScheduleUniverseFrame,shouldContinueUniverseFrame,shouldQueueUniverseOneShot,shouldRequestUniverseFrameAfterResize} from '@/lib/universe/renderPolicy';
 import {canAcceptUniverseSpatialInput} from '@/lib/universe/spatialInputPolicy';
 import {shouldApplyUniverseHeroEmission} from '@/lib/universe/startupPresentation';
-import {createRendererDiagnosticHandle} from '@/lib/perf/webglDiagnostics';
+import {createRendererDiagnosticHandle,recordUnexpectedWebGLContextLoss} from '@/lib/perf/webglDiagnostics';
 
 const vertex = `
 attribute float aSize; attribute float aKind; attribute float aSeed;
@@ -323,7 +323,7 @@ export class UniverseScene {
   }
   if(best)this.enter(best);else this.cancelFocus();
  }
- private contextLost=(e:Event)=>{e.preventDefault();this.onError();};
+ private contextLost=(e:Event)=>{e.preventDefault();recordUnexpectedWebGLContextLoss();this.onError();};
  snapshot():UniverseState{return {phase:this.birthPhase(),elapsed:this.clock,camera:this.camera.position.toArray() as [number,number,number],drawCalls:this.renderer.info.render.calls,points:this.renderer.info.render.points};}
  dispose(){this.disposed=true;this.oneShotRequested=false;clearTimeout(this.emissionTimeout);if(this.frame!==null){cancelAnimationFrame(this.frame);this.frame=null;}this.observer.disconnect();document.removeEventListener('visibilitychange',this.schedule);document.removeEventListener('native-visibility',this.nativeHandler);this.inputController.dispose();this.canvas.removeEventListener('webglcontextlost',this.contextLost);for(const system of this.systems.values())system.dispose(this.scene);this.geometries.forEach(g=>g.dispose());this.materials.forEach(m=>m.dispose());for(const cloud of this.galaxyClouds){this.scene.remove(cloud.mesh);cloud.mesh.material.dispose();cloud.texture.dispose();}for(const volume of this.galaxyVolumes){this.scene.remove(volume.group);volume.innerMaterial.dispose();volume.coreMaterial.dispose();volume.haloMaterial.dispose();}this.cloudGeometry.dispose();this.volumeCoreGeometry.dispose();this.volumeGlowTexture.dispose();(this.scene.getObjectByName('background') as THREE.Points<THREE.BufferGeometry,THREE.PointsMaterial>).material.dispose();this.core.material.map?.dispose();this.core.material.dispose();this.texture?.dispose();this.diagnostics?.dispose();this.diagnostics=null;this.renderer.dispose();}
 }
