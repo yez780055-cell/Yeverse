@@ -2,6 +2,7 @@ import {useEffect,useState} from 'react';
 import {ensurePlanetIdentity,readCollection,saveCollection,seed,type Collectible} from '@/lib/collection/data';
 import type {PendingAsset} from '@/lib/assets/manifest';
 import {preparePlanetPalette} from '@/lib/universe/planetPalette';
+import {recordStartupMark} from '@/lib/perf/startupDiagnostics';
 
 export function useCollectionRepository(){
   const [items,setItems]=useState<Collectible[]>(seed);
@@ -9,11 +10,14 @@ export function useCollectionRepository(){
 
   useEffect(()=>{
     let cancelled=false;
+    recordStartupMark('repository-read-start');
     readCollection().then(async saved=>{
+      recordStartupMark('indexeddb-read-complete');
       const prepared=await Promise.all((saved||seed).map(preparePlanetPalette));
+      recordStartupMark('repository-preparation-complete');
       await saveCollection(prepared);
-      if(!cancelled){setItems(prepared);setReady(true);}
-    }).catch(()=>{if(!cancelled){setStorageError(true);setReady(true);}});
+      if(!cancelled){recordStartupMark('repository-ready');setItems(prepared);setReady(true);}
+    }).catch(()=>{if(!cancelled){recordStartupMark('repository-error');setStorageError(true);setReady(true);}});
     return()=>{cancelled=true;};
   },[]);
 

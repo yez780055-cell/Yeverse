@@ -1,5 +1,5 @@
 import '../universe/universe.css';
-import {useEffect,useState,useMemo,Suspense} from 'react';
+import {useEffect,useLayoutEffect,useState,useMemo,Suspense} from 'react';
 import {Plus, Grid2X2, GalleryHorizontalEnd, Clock3, Search, SlidersHorizontal, Check, Menu} from 'lucide-react';
 import {Collectible} from '@/lib/collection/data';
 import type {PendingAsset} from '@/lib/assets/manifest';
@@ -12,6 +12,7 @@ import {collectionDeleteExitAction,shouldKeepUniverseActive} from '@/lib/collect
 import {shouldRunUniverseContinuously} from '@/lib/universe/renderPolicy';
 import {isWebGLDiagnosticsEnabled,setWebGLDiagnosticsAppState} from '@/lib/perf/webglDiagnostics';
 import WebGLDiagnosticsPanel from '../perf/WebGLDiagnosticsPanel';
+import {recordStartupMark,setStartupIntroMode} from '@/lib/perf/startupDiagnostics';
 import Editor from './Editor';
 import ImageInspect from './ImageInspect';
 import EmptyState from './EmptyState';
@@ -30,6 +31,8 @@ const [view,setView]=useState<View>('gallery'),[inspect,setInspect]=useState<'im
 const session=useCollectionSession(items),{selected,universeRef}=session,{detailPhase,expanded,archive,deleteConfirm}=session.state;
 const {availableCategories,filter,setFilter,query,setQuery,timelineCategories,setTimelineCategories,filtered,timelineItems,yearGroups,nextNumber,showCategory,showAll,toggleTimelineCategory}=useCollectionViews(items);
 const {introMode,saveIntroMode,acceptRestoredIntroMode}=useIntroPreference();
+useLayoutEffect(()=>{setStartupIntroMode(introMode);},[introMode]);
+useLayoutEffect(()=>{recordStartupMark('first-app-commit');},[]);
 const [profileRevision,setProfileRevision]=useState(0);
 const [photo,setPhoto]=useState<string|null>(null);
  const profileLoad=useGalaxyProfiles(availableCategories,profileRevision),galaxyProfiles=profileLoad.profiles;
