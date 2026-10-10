@@ -1,6 +1,43 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {collectionCloseAction,collectionStageFromUniverse,isIntroHandoffReady,planetActivationAction,shouldUniverseHandleBack} from '../.test-runtime/state-tests/lib/universe/flowState.js';
+import {backNavigationAction,collectionCloseAction,collectionReturnContract,collectionStageFromUniverse,focusBackAction,galaxyActivationAction,isIntroHandoffReady,planetActivationAction,planetFocusBackAction,resetNavigationAction,sceneRebuildAction,shouldUniverseHandleBack} from '../.test-runtime/state-tests/lib/universe/flowState.js';
+
+test('the first Galaxy activation focuses it and the second activation enters it',()=>{
+ const state={focusedGalaxyId:undefined,clickedGalaxyId:'g-1',completed:true,galaxyFlight:false,planetFlight:false,focusFlight:false};
+ assert.equal(galaxyActivationAction(state),'focus');
+ assert.equal(galaxyActivationAction({...state,focusedGalaxyId:'g-1'}),'enter');
+ assert.equal(galaxyActivationAction({...state,focusedGalaxyId:'g-2'}),'focus');
+});
+
+test('Galaxy and Planet navigation remain blocked during their existing transition windows',()=>{
+ const galaxy={focusedGalaxyId:'g-1',clickedGalaxyId:'g-1',completed:true,galaxyFlight:false,planetFlight:false,focusFlight:false};
+ for(const blocked of [
+  {...galaxy,completed:false},
+  {...galaxy,galaxyFlight:true},
+  {...galaxy,planetFlight:true},
+  {...galaxy,focusFlight:true},
+ ])assert.equal(galaxyActivationAction(blocked),'blocked');
+ assert.equal(planetActivationAction('p-1','p-1',true),'blocked');
+ assert.equal(planetActivationAction('p-1','p-1'),'open');
+});
+
+test('focus Back consumes a returning transition before dismissing focus anchors',()=>{
+ assert.equal(focusBackAction({returningFocusFlight:true,focusedPlanet:true,hasPlanetDismissAnchor:true,focusedGalaxy:true,hasGalaxyDismissAnchor:true}),'consume-returning-transition');
+});
+
+test('focus Back dismisses Planet before Galaxy, then falls through to Galaxy when the Planet has no anchor',()=>{
+ const state={returningFocusFlight:false,focusedPlanet:true,hasPlanetDismissAnchor:true,focusedGalaxy:true,hasGalaxyDismissAnchor:true};
+ assert.equal(focusBackAction(state),'dismiss-planet-focus');
+ assert.equal(focusBackAction({...state,hasPlanetDismissAnchor:false}),'dismiss-galaxy-focus');
+ assert.equal(focusBackAction({...state,hasPlanetDismissAnchor:false,focusedGalaxy:false,hasGalaxyDismissAnchor:false}),'none');
+});
+
+test('Back leaves a Galaxy system through reset and remains unhandled at Universe home',()=>{
+ assert.equal(backNavigationAction('DIGITAL'),'reset');
+ assert.equal(backNavigationAction('universe'),'unhandled');
+ assert.equal(resetNavigationAction(true),'return-to-universe');
+ assert.equal(resetNavigationAction(false),'reset-universe');
+});
 import {runBackHandlers} from '../.test-runtime/state-tests/lib/platform/backPriority.js';
 
 test('the first activation focuses a planet and the second activation opens that same planet',()=>{
@@ -68,6 +105,36 @@ test('after Collection exit completes, Native Back reaches normal Universe navig
  assert.equal(stage,'none');
  assert.equal(consumed,true);
  assert.deepEqual(calls,['universe']);
+});
+
+test('scene rebuilds wait until Collection and Universe navigation have safely returned home',()=>{
+ let stage='approach',atUniverseHome=false;
+ for(const activeStage of ['approach','collection','return']){
+  stage=activeStage;
+  assert.equal(sceneRebuildAction(true,stage,true),'defer',`${activeStage} must retain its owning Scene`);
+ }
+ stage=collectionStageFromUniverse('exited');
+ assert.equal(stage,'none');
+ assert.equal(shouldUniverseHandleBack(true,stage),true,'Back becomes available as soon as Collection exit finishes');
+ assert.equal(sceneRebuildAction(true,stage,atUniverseHome),'defer','keep the Planet focus anchor until normal Universe navigation finishes');
+ atUniverseHome=true;
+ assert.equal(sceneRebuildAction(true,stage,atUniverseHome),'rebuild');
+ assert.equal(stage,'none','the rebuild does not synthesize or retain a Collection stage');
+ assert.equal(shouldUniverseHandleBack(true,stage),true,'Native Back stays available after the rebuilt Scene is installed');
+ assert.equal(sceneRebuildAction(false,stage,atUniverseHome),'unchanged');
+});
+
+test('ordinary Planet Collection return retains its captured dismiss anchor',()=>{
+ const route=collectionReturnContract('universe-planet',true);
+ assert.deepEqual(route,{pose:'captured-planet-focus',planetDismissAnchor:true});
+ assert.equal(planetFocusBackAction(true,route.planetDismissAnchor),'dismiss-planet-focus');
+});
+
+test('Index and Timeline Collection return uses a synthetic pose without a Planet dismiss anchor',()=>{
+ const route=collectionReturnContract('index-timeline',true);
+ assert.deepEqual(route,{pose:'synthetic-planet-focus',planetDismissAnchor:false});
+ assert.equal(planetFocusBackAction(true,route.planetDismissAnchor),'leave-galaxy');
+ assert.equal(planetFocusBackAction(false,route.planetDismissAnchor),'none');
 });
 
 test('the Universe menu still consumes Back before scene navigation when no Collection is open',()=>{
