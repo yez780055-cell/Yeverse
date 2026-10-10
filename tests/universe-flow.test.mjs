@@ -163,7 +163,10 @@ test('Intro remains mounted across startup Scene replacements and handoff waits 
  assert.match(sceneEffect,/firstFrameGeneration\.current=generation;revealNoneStartup\(\);if\(handoffRequested\.current\)beginHandoffRef\.current\(\)/);
  assert.match(universeHomeSource,/firstFrameGeneration\.current===sceneGeneration\.current/);
  assert.match(universeHomeSource,/sceneGeneration\.current\+=1;firstFrameGeneration\.current=null/);
- assert.match(universeSceneSource,/this\.renderer\.render\(this\.scene,this\.camera\);if\(!this\.firstFrame\)/);
+ const renderIndex=universeSceneSource.indexOf('this.renderer.render(this.scene,this.camera);');
+ const firstFrameIndex=universeSceneSource.indexOf('if(!this.firstFrame)',renderIndex);
+ assert.ok(renderIndex>=0&&firstFrameIndex>renderIndex,'the rendered frame remains before first-frame readiness');
+ assert.match(universeSceneSource.slice(renderIndex,firstFrameIndex),/if\(this\.diagnostics\)this\.diagnostics\.recordRender\(renderStarted,performance\.now\(\)\);/);
 });
 
 test('handoff uses the unchanged 950ms full and 280ms quick fade, then disposes Intro before Universe completion',()=>{

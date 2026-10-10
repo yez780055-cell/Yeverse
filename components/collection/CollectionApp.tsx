@@ -10,6 +10,8 @@ import {collectionCloseAction} from '@/lib/universe/flowState';
 import {buildUniverseGenerationKey} from '@/lib/universe/collectionGeneration';
 import {collectionDeleteExitAction,shouldKeepUniverseActive} from '@/lib/collection/sessionState';
 import {shouldRunUniverseContinuously} from '@/lib/universe/renderPolicy';
+import {isWebGLDiagnosticsEnabled,setWebGLDiagnosticsAppState} from '@/lib/perf/webglDiagnostics';
+import WebGLDiagnosticsPanel from '../perf/WebGLDiagnosticsPanel';
 import Editor from './Editor';
 import ImageInspect from './ImageInspect';
 import EmptyState from './EmptyState';
@@ -48,6 +50,8 @@ const open=session.openFromList;
 const openFromUniverse=session.openFromUniverse;
 const universeActive=shouldKeepUniverseActive(view==='gallery',Boolean(selected),detailPhase)&&editing===undefined&&!settings&&!inspect&&!photo;
 const universeRenderActive=shouldRunUniverseContinuously(universeActive,Boolean(selected),detailPhase);
+ const diagnosticsAppState=selected?(detailPhase==='approach'?'collection-approach':detailPhase==='exiting'?'collection-return':'collection-visible'):view==='gallery'?'universe-home':view;
+ useEffect(()=>{setWebGLDiagnosticsAppState(diagnosticsAppState);},[diagnosticsAppState]);
 return <main className={`museum ${view==='gallery'?'universe-open':''}`}>
 <header className="header"><button className="icon-button menu" aria-label="收藏设置" onClick={()=>setSettings(true)}><Menu size={20}/></button><button className="wordmark" onClick={()=>setView('gallery')}>YEVERSE<span>PRIVATE ARCHIVE</span></button><nav className="desktop-nav"><button className={view==='gallery'?'active':''} onClick={()=>setView('gallery')}>宇宙</button><button className={view==='index'?'active':''} onClick={()=>setView('index')}>藏品索引</button><button className={view==='timeline'?'active':''} onClick={()=>setView('timeline')}>时间线</button></nav><div className="header-actions"><span className="private-label">A PERSONAL ARCHIVE</span><button className="icon-button desktop-settings" aria-label="收藏设置" onClick={()=>setSettings(true)}><SlidersHorizontal size={18}/></button><button className="add-button" aria-label="添加藏品" disabled={!ready} onClick={()=>setEditing(null)}><Plus size={18}/><span>添加藏品</span></button></div></header>
 {storageError&&<div className="storage-warning" role="alert">本地藏品存储暂不可用，修改前请检查浏览器设置。</div>}{profileLoad.issue&&<div className="storage-warning" role="alert">{profileLoad.issue.stage==='read'?'星系配置读取失败，当前仅临时使用默认配置；原有保存内容未被覆盖。请检查浏览器存储或先保留本地数据。':'星系配置未能保存，当前页面可继续使用，但刷新后可能恢复旧配置。请检查浏览器存储权限。'}</div>}
@@ -61,5 +65,6 @@ return <main className={`museum ${view==='gallery'?'universe-open':''}`}>
 {editing!==undefined&&<Editor item={editing} categories={availableCategories} nextNumber={nextNumber} close={()=>setEditing(undefined)} save={save}/>}
 {settings&&<CollectionSettings isNative={isNative} introMode={introMode} onClose={()=>setSettings(false)} onIntroChange={(value,title)=>{const saved=saveIntroMode(value);setToast(saved?`开屏动画已设为「${title}」`:'开屏设置未能保存；重启后可能恢复原设置，请检查浏览器存储权限。');}} onExport={backup.exportData} onImport={backup.importData}/>}
 {toast&&<div className="toast" role="status"><Check size={17}/>{toast}</div>}
+{isWebGLDiagnosticsEnabled()&&<WebGLDiagnosticsPanel/>}
 </main>;
 }
