@@ -6,6 +6,7 @@ import {GalaxySystem,type GalaxyObject,type GalaxyPlanet} from './PlanetSystem';
 import {collectionReturnContract,planetActivationAction,planetFocusBackAction} from '@/lib/universe/flowState';
 import {publicAssetUrl} from '@/lib/assets/publicAssetUrl';
 import {UniverseInputController,type UniversePointerState} from './UniverseInputController';
+import {UniverseLabelProjector} from './UniverseLabelProjector';
 
 const vertex = `
 attribute float aSize; attribute float aKind; attribute float aSeed;
@@ -124,15 +125,15 @@ export class UniverseScene {
  private yaw=0;private pitch=0;private homeRotation=new THREE.Quaternion();private turnVelocity=new THREE.Vector2();
  private flying?:{start:THREE.Vector3;end:THREE.Vector3;rotation:THREE.Quaternion;startRotation:THREE.Quaternion;time:number;galaxy:Galaxy;returning:boolean;entered?:boolean};private home=new THREE.Vector3();
  private duration:number;private handoffTime:number;private baselineDuration:number;private completed=false;private firstFrame=false;private readySent=false;private w=1;private h=1;private slowFrames=0;private quality=1;private observer:ResizeObserver;
- private core:THREE.Sprite;private labels:Map<string,HTMLElement>;private nativeHandler:(e:Event)=>void;
- private galaxies:Galaxy[];private systems=new Map<string,GalaxySystem>();readonly unsupportedPlanetVersions:{galaxy:string;name:string;version:number}[]=[];private mode='universe';private planetLabels:Map<string,HTMLElement>;private focusedGalaxy?:string;private focusedPlanet?:string;private universeOpacity=1;
+ private core:THREE.Sprite;private labelProjector:UniverseLabelProjector;private nativeHandler:(e:Event)=>void;
+ private galaxies:Galaxy[];private systems=new Map<string,GalaxySystem>();readonly unsupportedPlanetVersions:{galaxy:string;name:string;version:number}[]=[];private mode='universe';private focusedGalaxy?:string;private focusedPlanet?:string;private universeOpacity=1;
  private planetFlight?:{start:THREE.Vector3;end:THREE.Vector3;startRotation:THREE.Quaternion;rotation:THREE.Quaternion;time:number;planet:GalaxyPlanet;returning:boolean;entered?:boolean};
  private collectionHome={position:new THREE.Vector3(),rotation:new THREE.Quaternion()};private collectionProgress=0;
  private focusFlight?:{kind:'galaxy'|'planet';id:string;start:THREE.Vector3;end:THREE.Vector3;startRotation:THREE.Quaternion;rotation:THREE.Quaternion;time:number;returning:boolean};
  private universeFocusHome?:{position:THREE.Vector3;rotation:THREE.Quaternion};private systemFocusHome?:{position:THREE.Vector3;rotation:THREE.Quaternion};private planetFocusTime=0;
  constructor(private canvas:HTMLCanvasElement,labels:Map<string,HTMLElement>,planetLabels:Map<string,HTMLElement>,galaxies:Galaxy[],items:GalaxyObject[],private onEnter:(g:Galaxy)=>void,private onOpenPlanet:(id:string)=>void,private onCollectionStage:(stage:'approach'|'entered'|'exited',id:string)=>void,private onMode:(mode:string)=>void,private onFocus:(focus:SpaceFocus|null)=>void,private onReady:()=>void,private onFirstFrame:()=>void,private onError:()=>void,private introMode:UniverseIntroMode,private onSafeRebuildPoint:()=>void){
-  this.labels=labels;this.planetLabels=planetLabels;
   this.galaxies=galaxies;
+  this.labelProjector=new UniverseLabelProjector(labels,planetLabels,this.galaxies,this.galaxyVisualScale.bind(this));
   const digital=this.galaxies.find(g=>g.category==='数码'),homeLookAt=new THREE.Vector3(...(digital?.position||[-36,18,-50]));
   this.home.set(12,-8,260);this.target.copy(this.home);this.homeRotation.setFromRotationMatrix(new THREE.Matrix4().lookAt(this.home,homeLookAt,new THREE.Vector3(0,1,0)));
   const homeEuler=new THREE.Euler().setFromQuaternion(this.homeRotation,'YXZ');this.pitch=homeEuler.x;this.yaw=homeEuler.y;
@@ -215,12 +216,7 @@ export class UniverseScene {
   (this.scene.getObjectByName('background') as THREE.Points<THREE.BufferGeometry,THREE.PointsMaterial>).material.opacity=(this.completed?.65:.2+.45*ease(formation/.72))*(this.mode!=='universe'?.18:this.universeOpacity);
   const activeSystem=this.systems.get(this.mode);if(activeSystem){activeSystem.setVisible(true);activeSystem.setOpacity(1);activeSystem.update(this.focusedPlanet?this.planetFocusTime:now,this.focusedPlanet,now);activeSystem.setDetailPresentation(this.focusedPlanet,this.collectionProgress);}
   this.camera.updateMatrixWorld();
-  // Names emerge only for the nearest named galaxy within the forward field of view.
-  let candidate:string|undefined,score=Infinity;
-  if(this.mode==='universe')for(const g of this.galaxies){if(!g.name)continue;const center=new THREE.Vector3(...g.position),v=center.clone().project(this.camera),distance=center.distanceTo(this.camera.position)/(g.radius*this.galaxyVisualScale(g));const local=center.clone().applyMatrix4(this.camera.matrixWorldInverse);if(local.z<0&&v.z<1&&Math.abs(v.x)<.88&&Math.abs(v.y)<.82&&distance<5.6&&distance<score){candidate=g.id;score=distance;}}
-  if(this.focusedGalaxy)candidate=this.focusedGalaxy;
-  for(const g of this.galaxies){const label=this.labels.get(g.id);if(!label)continue;const v=new THREE.Vector3(...g.position).project(this.camera);const x=(v.x*.5+.5)*this.w,y=(-v.y*.5+.5)*this.h;const visible=this.completed&&!this.flying&&candidate===g.id;label.style.transform=`translate(${x}px,${y}px)`;label.style.opacity=visible?(g.id===this.focusedGalaxy?'1':'.8'):'0';label.style.pointerEvents=visible?'auto':'none';label.tabIndex=visible?0:-1;label.classList.toggle('is-focused',g.id===this.focusedGalaxy);label.setAttribute('aria-hidden',String(!visible));}
-  if(activeSystem&&!this.planetFlight){const nearest=activeSystem.nearest(this.camera);for(const p of activeSystem.planets){const label=this.planetLabels.get(p.item.id);if(!label)continue;const world=p.root.getWorldPosition(new THREE.Vector3()),v=world.project(this.camera),x=(v.x*.5+.5)*this.w,y=(-v.y*.5+.5)*this.h,visible=v.z<1&&v.z>-1&&x>28&&x<this.w-28&&y>24&&y<this.h-76,focused=p.item.id===this.focusedPlanet,near=p.item.id===nearest?.item.id;label.style.transform=`translate(${x}px,${y}px)`;label.style.opacity=visible?(focused?'1':this.focusedPlanet?'.18':near?'.88':'.55'):'0';label.style.pointerEvents=visible?'auto':'none';label.tabIndex=visible?0:-1;label.classList.toggle('is-focused',focused);label.setAttribute('aria-hidden',String(!visible));}}else{for(const label of this.planetLabels.values()){label.style.opacity='0';label.style.pointerEvents='none';label.tabIndex=-1;label.classList.remove('is-focused');label.setAttribute('aria-hidden','true');}}
+  this.labelProjector.update({camera:this.camera,width:this.w,height:this.h,mode:this.mode,completed:this.completed,flying:Boolean(this.flying),planetFlight:Boolean(this.planetFlight),focusedGalaxy:this.focusedGalaxy,focusedPlanet:this.focusedPlanet,activeSystem});
   const phase=this.birthPhase();this.canvas.dataset.phase=phase;this.canvas.dataset.mode=this.mode;this.canvas.dataset.focused=this.focusedPlanet||this.focusedGalaxy||'';this.canvas.dataset.elapsed=this.clock.toFixed(2);this.canvas.dataset.ready=String(this.ready);this.canvas.dataset.position=this.camera.position.toArray().map(v=>v.toFixed(2)).join(',');this.canvas.dataset.direction=this.camera.getWorldDirection(new THREE.Vector3()).toArray().map(v=>v.toFixed(3)).join(',');this.renderer.render(this.scene,this.camera);if(!this.firstFrame){this.firstFrame=true;this.onFirstFrame();if(this.completed&&!this.readySent){this.readySent=true;this.onReady();}}this.frame=requestAnimationFrame(this.tick);
  };
  private galaxyVisualScale(g:Galaxy){if(!g.name)return .82;const center=new THREE.Vector3(...g.position).applyMatrix4(this.camera.matrixWorldInverse),depth=Math.max(8,-center.z),projected=g.radius*this.h/(depth*2*Math.tan(THREE.MathUtils.degToRad(this.camera.fov*.5))),reference=g.category==='数码';return clamp((reference?54:68)/Math.max(1,projected),1,reference?3.25:4);}
