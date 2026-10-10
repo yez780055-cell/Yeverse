@@ -7,7 +7,7 @@ import {AssetModel,PendingAsset} from '@/lib/assets/manifest';
 import {readAsset} from '@/lib/collection/data';
 import {loadAsset,disposeObject,pose,eased} from '@/lib/assets/runtime';
 import {canRunViewerRaf,createRafScheduler,hasViewerRafWork} from '@/lib/viewerRaf';
-import {createRendererDiagnosticHandle,recordIntentionalWebGLContextRelease} from '@/lib/perf/webglDiagnostics';
+import {createRendererDiagnosticHandle,recordIntentionalWebGLContextRelease,recordUnexpectedWebGLContextLoss} from '@/lib/perf/webglDiagnostics';
 import {createTransientWebGLRendererRelease} from '@/lib/perf/transientWebGLContext';
 export default function AssetViewer({model,inline=false,immersive=false,expanded:controlledExpanded,onExplode,onExpandedChange,onReady,preview}:{model:AssetModel;inline?:boolean;immersive?:boolean;expanded?:boolean;onExplode?:()=>void;onExpandedChange?:(value:boolean)=>void;onReady?:()=>void;preview?:PendingAsset}){
 const host=useRef<HTMLDivElement>(null),callbacks=useRef({onExplode,onExpandedChange,onReady}),reset=useRef(()=>{}),wakeFrame=useRef<()=>void>(()=>{}),hotspots=useRef<(HTMLButtonElement|null)[]>([]);const [part,setPart]=useState<number|null>(null),[internalExpanded,setInternalExpanded]=useState(!inline&&!immersive),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);const expanded=controlledExpanded??internalExpanded,changeExpanded=(value:boolean)=>{setInternalExpanded(value);onExpandedChange?.(value);};const state=useRef({part,expanded});useLayoutEffect(()=>{state.current={part,expanded};callbacks.current={onExplode,onExpandedChange,onReady};wakeFrame.current();},[part,expanded,onExplode,onExpandedChange,onReady]);
