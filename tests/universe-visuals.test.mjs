@@ -91,9 +91,33 @@ test('GalaxySystem visual updates remain after galaxy/background updates and kee
  assert.deepEqual(calls,[['visible',true],['opacity',1],['update',123,'planet-1',500],['detail','planet-1',.75]]);
 });
 
-test('Scene keeps the updater before Camera matrices, labels, debug state, and renderer.render',()=>{
- const source=readFileSync('components/universe/scene.ts','utf8'),tick=source.indexOf('private tick='),visuals=source.indexOf('updateUniverseVisuals(',tick),camera=source.indexOf('this.camera.updateMatrixWorld();',visuals),labels=source.indexOf('this.labelProjector.update(',camera),dataset=source.indexOf('this.canvas.dataset.phase=',labels),render=source.indexOf('this.renderer.render(this.scene,this.camera);',dataset);
- assert.ok(tick>=0&&visuals>tick&&camera>visuals&&labels>camera&&dataset>labels&&render>dataset);
+test('Scene updates current Camera matrices after movement and before visual/label projection and render',()=>{
+ const source=readFileSync('components/universe/scene.ts','utf8'),tickStart=source.indexOf('private tick='),tickEnd=source.indexOf('\n  };',tickStart),tick=source.slice(tickStart,tickEnd);
+ const camera=tick.indexOf('this.camera.updateMatrixWorld();'),visuals=tick.indexOf('updateUniverseVisuals('),labels=tick.indexOf('this.labelProjector.update('),dataset=tick.indexOf('this.canvas.dataset.phase='),direction=tick.indexOf('this.camera.getWorldDirection('),render=tick.indexOf('this.renderer.render(this.scene,this.camera);');
+ assert.ok(tickStart>=0&&tickEnd>tickStart&&camera>=0&&visuals>camera&&labels>visuals&&dataset>labels&&direction>dataset&&render>direction);
+ for(const write of ['this.camera.position.set(','this.camera.quaternion.identity()','this.camera.position.lerpVectors(','this.camera.quaternion.slerpQuaternions(','this.camera.position.copy(this.home)','this.camera.quaternion.copy(this.homeRotation)','this.camera.position.lerp(','this.camera.quaternion.slerp(']){
+  const lastWrite=tick.lastIndexOf(write);
+  assert.ok(lastWrite>=0&&lastWrite<camera,write+' must happen before the per-frame matrix update');
+ }
+ assert.equal((tick.match(/this\.camera\.updateMatrixWorld\(\);/g)||[]).length,1,'one Camera matrix update per frame');
+ assert.equal((tick.match(/this\.renderer\.render\(this\.scene,this\.camera\);/g)||[]).length,1,'one render call per frame');
+});
+
+test('galaxy visual scale relies on the unified frame update and does not refresh Camera matrices itself',()=>{
+ const updater=readFileSync('components/universe/UniverseVisualUpdater.ts','utf8'),start=updater.indexOf('export function getGalaxyVisualScale('),end=updater.indexOf('\n}\n\nexport function updateUniverseVisuals',start),scale=updater.slice(start,end);
+ assert.ok(start>=0&&end>start);
+ assert.doesNotMatch(scale,/updateMatrixWorld/);
+});
+
+test('formation completion still commits the exact existing HOME camera pose before projection',()=>{
+ const source=readFileSync('components/universe/scene.ts','utf8');
+ assert.match(source,/if\(this\.clock>=this\.duration&&this\.ready\)\{this\.completed=true;this\.camera\.position\.copy\(this\.home\);this\.camera\.quaternion\.copy\(this\.homeRotation\);this\.target\.copy\(this\.home\);/);
+});
+
+test('focus transition keeps its existing elapsed accumulation, duration, and position/rotation sampling',()=>{
+ const source=readFileSync('components/universe/scene.ts','utf8'),start=source.indexOf('else if(this.focusFlight){'),end=source.indexOf('}else if(this.planetFlight)',start),flight=source.slice(start,end);
+ assert.ok(flight.includes('f.time+=elapsed;const sample=sampleCameraTransition(f.time,focusTransitionDuration(this.reduced),1.45);'));
+ assert.ok(flight.includes('this.camera.position.lerpVectors(f.start,f.end,sample.progress);this.camera.quaternion.slerpQuaternions(f.startRotation,f.rotation,sample.rotationProgress);'));
 });
 
 test('galaxy visual scale retains the current camera projection limits',()=>{
