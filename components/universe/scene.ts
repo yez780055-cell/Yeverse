@@ -180,6 +180,21 @@ export class UniverseScene {
  private resize=()=>{this.w=this.canvas.clientWidth;this.h=this.canvas.clientHeight;if(!this.w||!this.h)return;this.camera.aspect=this.w/this.h;this.camera.updateProjectionMatrix();this.renderer.setSize(this.w,this.h,false);for(const m of this.materials){m.uniforms.uHeight.value=this.h;m.uniforms.uDpr.value=this.renderer.getPixelRatio();}};
  setReady(v:boolean){this.ready=v;}
  setActive(v:boolean){if(v===this.active)return;this.active=v;this.inputController.reset();this.schedule();if(v)this.notifySafeRebuildPoint();}
+ refreshItemMetadata(items:readonly GalaxyObject[]){
+  let changed=false;
+  for(const system of this.systems.values())if(system.refreshItemMetadata(items))changed=true;
+  if(!changed)return false;
+  this.unsupportedPlanetVersions.length=0;
+  for(const galaxy of this.galaxies){
+   const system=this.systems.get(galaxy.id);
+   if(system)this.unsupportedPlanetVersions.push(...system.unsupportedGenerators.map(({item,version})=>({galaxy:galaxy.name||galaxy.category||galaxy.id,name:item.name||item.id,version})));
+  }
+  if(this.focusedPlanet){
+   const planet=this.systems.get(this.mode)?.planets.find(candidate=>candidate.item.id===this.focusedPlanet);
+   if(planet)this.onFocus({kind:'planet',id:planet.item.id,title:planet.item.name,description:planet.item.subtitle||'一件被认真留下的藏品。',meta:`${planet.item.date} · ${planet.item.category}`});
+  }
+  return true;
+ }
  isAtUniverseHome(){return this.completed&&this.mode==='universe'&&!this.focusedGalaxy&&!this.focusedPlanet&&!this.flying&&!this.focusFlight&&!this.planetFlight&&!this.universeFocusHome&&!this.systemFocusHome;}
  private notifySafeRebuildPoint(){if(this.isAtUniverseHome())this.onSafeRebuildPoint();}
  private schedule=()=>{cancelAnimationFrame(this.frame);this.last=0;if(!this.disposed&&this.active&&this.nativeActive&&!document.hidden)this.frame=requestAnimationFrame(this.tick);};

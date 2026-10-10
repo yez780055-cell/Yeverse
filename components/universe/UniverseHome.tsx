@@ -35,6 +35,10 @@ const UniverseHome=forwardRef<UniverseHomeHandle,Props>(function UniverseHome(pr
   startUniverse();
   return()=>{disposed=true;clearTimeout(handoffTimer);opening?.dispose();instance?.dispose();introScene.current=null;scene.current=null;};
  },[sceneRevision,requestSceneRebuild]);
+ useLayoutEffect(()=>{
+  const instance=scene.current;
+  if(instance?.refreshItemMetadata(props.items))setUnsupportedPlanetVersions([...instance.unsupportedPlanetVersions]);
+ },[props.items]);
  useEffect(()=>{scene.current?.setReady(props.ready);introScene.current?.setReady(props.ready);},[props.ready]);
  useEffect(()=>{scene.current?.setActive(props.active&&!failed);introScene.current?.setActive(props.active&&!failed);if(!props.active)setMenu(false);},[props.active,failed]);
  useEffect(()=>{if(!formed)return;const timer=setTimeout(()=>setHint(false),8000);return()=>clearTimeout(timer);},[formed]);
