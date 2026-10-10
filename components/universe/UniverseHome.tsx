@@ -8,32 +8,53 @@ import {UniverseIntroScene} from './IntroScene';
 import {useNativeBack} from '@/lib/platform/native';
 import type {UniverseIntroMode} from './preferences';
 import type {GalaxyObject} from './PlanetSystem';
-import {collectionStageFromUniverse,isIntroHandoffReady,sceneRebuildAction,shouldUniverseHandleBack} from '@/lib/universe/flowState';
+import {carryStartupElapsed,collectionStageFromUniverse,isCurrentSceneRevision,isIntroHandoffReady,startupSceneRebuildAction,shouldUniverseHandleBack} from '@/lib/universe/flowState';
 
 export type UniverseHomeHandle={exitCollection:()=>boolean;presentCollection:(id:string)=>boolean};
 type Props={active:boolean;renderActive:boolean;ready:boolean;introMode:UniverseIntroMode;profiles:GalaxyProfile[];items:GalaxyObject[];generationKey:string;onOpen:(id:string)=>void;onDetailStage:(stage:'approach'|'entered'|'exited',id:string)=>void;onCategory:(c:Category)=>void;onIndex:()=>void;onTimeline:()=>void;onAdd:()=>void;onSettings:()=>void};
 type SceneInputs={generationKey:string;galaxies:ReturnType<typeof buildGalaxies>;retry:number};
 const UniverseHome=forwardRef<UniverseHomeHandle,Props>(function UniverseHome(props,ref){
- const canvas=useRef<HTMLCanvasElement>(null),introCanvas=useRef<HTMLCanvasElement>(null),scene=useRef<UniverseScene|null>(null),introScene=useRef<UniverseIntroScene|null>(null),labels=useRef(new Map<string,HTMLElement>()),planetLabels=useRef(new Map<string,HTMLElement>()),latest=useRef(props),hasFormed=useRef(false);
+ const canvas=useRef<HTMLCanvasElement>(null),introCanvas=useRef<HTMLCanvasElement>(null),scene=useRef<UniverseScene|null>(null),introScene=useRef<UniverseIntroScene|null>(null),labels=useRef(new Map<string,HTMLElement>()),planetLabels=useRef(new Map<string,HTMLElement>()),latest=useRef(props),hasFormed=useRef(false),sceneGeneration=useRef(0),firstFrameGeneration=useRef<number|null>(null),startupElapsed=useRef(0),handoffRequested=useRef(false),handoffTimer=useRef<number|null>(null),introModeRef=useRef<UniverseIntroMode|'none'>('none'),introEffectDisposed=useRef(false),introDisposedAfterHandoff=useRef(false),beginHandoffRef=useRef<()=>void>(()=>{});
  latest.current=props;
  const galaxies=useMemo(()=>buildGalaxies(props.profiles),[props.profiles]);
  const [formed,setFormed]=useState(false),[failed,setFailed]=useState(false),[menu,setMenu]=useState(false),[hint,setHint]=useState(true),[retry,setRetry]=useState(0),[layer,setLayer]=useState('universe'),[focus,setFocus]=useState<SpaceFocus|null>(null),[introVisible,setIntroVisible]=useState(false),[handoff,setHandoff]=useState(false),[collectionStage,setCollectionStage]=useState<'none'|'approach'|'collection'|'return'>('none');
  const [sceneRevision,setSceneRevision]=useState(0),sceneStage=useRef(collectionStage),currentSceneInputs=useRef<SceneInputs>({generationKey:props.generationKey,galaxies,retry}),appliedSceneInputs=useRef<SceneInputs|null>(null);
  sceneStage.current=collectionStage;currentSceneInputs.current={generationKey:props.generationKey,galaxies,retry};
- const requestSceneRebuild=useCallback(()=>{const applied=appliedSceneInputs.current;if(!applied)return;const next=currentSceneInputs.current,changed=applied.generationKey!==next.generationKey||applied.galaxies!==next.galaxies||applied.retry!==next.retry,atUniverseHome=scene.current?scene.current.isAtUniverseHome():sceneStage.current==='none';if(sceneRebuildAction(changed,sceneStage.current,atUniverseHome)==='rebuild'){appliedSceneInputs.current=next;setSceneRevision(value=>value+1);}},[]);
+ const requestSceneRebuild=useCallback(()=>{const applied=appliedSceneInputs.current;if(!applied)return;const next=currentSceneInputs.current,changed=applied.generationKey!==next.generationKey||applied.galaxies!==next.galaxies||applied.retry!==next.retry,atUniverseHome=scene.current?scene.current.isAtUniverseHome():sceneStage.current==='none',action=startupSceneRebuildAction(changed,hasFormed.current,sceneStage.current,atUniverseHome);if(action==='rebuild'){if(!hasFormed.current){startupElapsed.current=carryStartupElapsed(startupElapsed.current,scene.current?.snapshot().elapsed??0);if(handoffTimer.current!==null){window.clearTimeout(handoffTimer.current);handoffTimer.current=null;if(!introDisposedAfterHandoff.current)setHandoff(false);}}sceneGeneration.current+=1;firstFrameGeneration.current=null;appliedSceneInputs.current=next;setSceneRevision(value=>value+1);}},[]);
  const [unsupportedPlanetVersions,setUnsupportedPlanetVersions]=useState<{galaxy:string;name:string;version:number}[]>([]);
  useImperativeHandle(ref,()=>({exitCollection:()=>{const started=scene.current?.exitCollection()||false;if(started){scene.current?.setRenderActive(true);setCollectionStage('return');}return started;},presentCollection:id=>scene.current?.presentCollection(id)||false}),[]);
  useNativeBack(20,()=>{if(!shouldUniverseHandleBack(props.active,collectionStage))return false;if(menu){setMenu(false);return true;}return scene.current?.back()||false;});
  useLayoutEffect(()=>{requestSceneRebuild();},[props.generationKey,galaxies,retry,collectionStage,requestSceneRebuild]);
+ const beginHandoff=useCallback(()=>{
+  handoffRequested.current=true;
+  const intro=introModeRef.current,frameReady=firstFrameGeneration.current===sceneGeneration.current;
+  if(introDisposedAfterHandoff.current||handoffTimer.current!==null||!isIntroHandoffReady({requested:true,universeFrameReady:frameReady,disposed:introEffectDisposed.current,introMode:intro}))return;
+  setHandoff(true);
+  handoffTimer.current=window.setTimeout(()=>{
+   handoffTimer.current=null;
+   if(!isIntroHandoffReady({requested:true,universeFrameReady:firstFrameGeneration.current===sceneGeneration.current,disposed:introEffectDisposed.current,introMode:intro}))return;
+   introScene.current?.setActive(false);setIntroVisible(false);introScene.current?.dispose();introScene.current=null;introDisposedAfterHandoff.current=true;
+  },intro==='full'?950:280);
+ },[]);
+ beginHandoffRef.current=beginHandoff;
  useLayoutEffect(()=>{
-  if(!canvas.current||!introCanvas.current)return;let instance:UniverseScene|undefined,opening:UniverseIntroScene|undefined,handoffTimer=0,disposed=false,universeFrameReady=false,handoffRequested=false;const intro=hasFormed.current?'none':latest.current.introMode;
+  if(!introCanvas.current)return;let opening:UniverseIntroScene|undefined;
+  const intro=hasFormed.current?'none':latest.current.introMode;
+  introModeRef.current=intro;introEffectDisposed.current=false;introDisposedAfterHandoff.current=intro==='none';handoffRequested.current=false;handoffTimer.current=null;firstFrameGeneration.current=null;
+  setHandoff(intro==='none');setIntroVisible(intro!=='none');
+  const fail=()=>{if(introEffectDisposed.current)return;setFailed(true);setIntroVisible(false);};
+  if(intro!=='none')try{opening=new UniverseIntroScene(introCanvas.current,()=>beginHandoffRef.current(),fail,intro);introScene.current=opening;opening.setReady(latest.current.ready);opening.setActive(latest.current.active);}catch{fail();}
+  return()=>{introEffectDisposed.current=true;if(handoffTimer.current!==null){window.clearTimeout(handoffTimer.current);handoffTimer.current=null;}opening?.dispose();if(introScene.current===opening)introScene.current=null;};
+ },[]);
+ useLayoutEffect(()=>{
+  if(!canvas.current)return;let instance:UniverseScene|undefined,disposed=false;
+  if(sceneGeneration.current===0)sceneGeneration.current=1;
+  const generation=sceneGeneration.current,intro=hasFormed.current?'none':introModeRef.current;
   const fail=()=>{if(disposed)return;setFailed(true);setIntroVisible(false);};
-  const beginHandoff=()=>{handoffRequested=true;const handoffState=()=>isIntroHandoffReady({requested:handoffRequested,universeFrameReady,disposed,introMode:intro});if(!handoffState())return;setHandoff(true);handoffTimer=window.setTimeout(()=>{if(!handoffState())return;opening?.setActive(false);setIntroVisible(false);opening?.dispose();opening=undefined;introScene.current=null;},intro==='full'?950:280);};
-  const startUniverse=()=>{if(disposed||!canvas.current)return;try{const inputs=currentSceneInputs.current;appliedSceneInputs.current=inputs;instance=new UniverseScene(canvas.current,labels.current,planetLabels.current,inputs.galaxies,latest.current.items,g=>{if(g.category)latest.current.onCategory(g.category);},id=>latest.current.onOpen(id),(stage,id)=>{setCollectionStage(collectionStageFromUniverse(stage));latest.current.onDetailStage(stage,id);},setLayer,setFocus,()=>{hasFormed.current=true;setFormed(true);},()=>{universeFrameReady=true;if(handoffRequested)beginHandoff();},fail,intro,requestSceneRebuild);scene.current=instance;setUnsupportedPlanetVersions(instance.unsupportedPlanetVersions);instance.setReady(latest.current.ready);instance.setActive(latest.current.active);instance.setRenderActive(latest.current.renderActive);}catch{fail();}};
-  setFailed(false);setFocus(null);setLayer('universe');setUnsupportedPlanetVersions([]);setHandoff(intro==='none');setIntroVisible(intro!=='none');
-  if(intro!=='none')try{opening=new UniverseIntroScene(introCanvas.current,beginHandoff,fail,intro);introScene.current=opening;opening.setReady(latest.current.ready);opening.setActive(latest.current.active);}catch{fail();}
+  const startUniverse=()=>{if(disposed||!canvas.current)return;try{const inputs=currentSceneInputs.current;appliedSceneInputs.current=inputs;const initialElapsed=hasFormed.current?0:startupElapsed.current;instance=new UniverseScene(canvas.current,labels.current,planetLabels.current,inputs.galaxies,latest.current.items,g=>{if(g.category)latest.current.onCategory(g.category);},id=>latest.current.onOpen(id),(stage,id)=>{setCollectionStage(collectionStageFromUniverse(stage));latest.current.onDetailStage(stage,id);},setLayer,setFocus,()=>{if(!isCurrentSceneRevision(generation,sceneGeneration.current,disposed)||scene.current!==instance)return;startupElapsed.current=0;hasFormed.current=true;setFormed(true);},()=>{if(!isCurrentSceneRevision(generation,sceneGeneration.current,disposed)||scene.current!==instance)return;firstFrameGeneration.current=generation;if(handoffRequested.current)beginHandoffRef.current();},fail,intro,requestSceneRebuild,initialElapsed);scene.current=instance;setUnsupportedPlanetVersions(instance.unsupportedPlanetVersions);instance.setReady(latest.current.ready);instance.setActive(latest.current.active);instance.setRenderActive(latest.current.renderActive);}catch{fail();}};
+  setFailed(false);setFocus(null);setLayer('universe');setUnsupportedPlanetVersions([]);
   startUniverse();
-  return()=>{disposed=true;clearTimeout(handoffTimer);opening?.dispose();instance?.dispose();introScene.current=null;scene.current=null;};
+  return()=>{disposed=true;if(!hasFormed.current&&instance)startupElapsed.current=carryStartupElapsed(startupElapsed.current,instance.snapshot().elapsed);if(scene.current===instance)scene.current=null;instance?.dispose();};
  },[sceneRevision,requestSceneRebuild]);
  useLayoutEffect(()=>{
   const instance=scene.current;

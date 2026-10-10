@@ -1,7 +1,5 @@
 export type UniverseSpatialInputState=Readonly<{
  completed:boolean;
- now:number;
- interactionReadyAt:number;
  disposed:boolean;
  flying:boolean;
  focusFlight:boolean;
@@ -9,5 +7,5 @@ export type UniverseSpatialInputState=Readonly<{
 }>;
 
 export function canAcceptUniverseSpatialInput(state:UniverseSpatialInputState):boolean{
- return state.completed&&state.now>=state.interactionReadyAt&&!state.disposed&&!state.flying&&!state.focusFlight&&!state.planetFlight;
+ return state.completed&&!state.disposed&&!state.flying&&!state.focusFlight&&!state.planetFlight;
 }

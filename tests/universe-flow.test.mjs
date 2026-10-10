@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {backNavigationAction,collectionCloseAction,collectionReturnContract,collectionStageFromUniverse,focusBackAction,galaxyActivationAction,isIntroHandoffReady,planetActivationAction,planetFocusBackAction,resetNavigationAction,sceneRebuildAction,shouldUniverseHandleBack} from '../.test-runtime/state-tests/lib/universe/flowState.js';
+import {backNavigationAction,collectionCloseAction,collectionReturnContract,collectionStageFromUniverse,focusBackAction,galaxyActivationAction,isIntroHandoffReady,planetActivationAction,planetFocusBackAction,resetNavigationAction,sceneRebuildAction,startupSceneRebuildAction,isCurrentSceneRevision,carryStartupElapsed,shouldUniverseHandleBack} from '../.test-runtime/state-tests/lib/universe/flowState.js';
 
 test('the first Galaxy activation focuses it and the second activation enters it',()=>{
  const state={focusedGalaxyId:undefined,clickedGalaxyId:'g-1',completed:true,galaxyFlight:false,planetFlight:false,focusFlight:false};
@@ -153,11 +153,22 @@ const universeHomeSource=readFileSync('components/universe/UniverseHome.tsx','ut
 const introSceneSource=readFileSync('components/universe/IntroScene.ts','utf8');
 const universeSceneSource=readFileSync('components/universe/scene.ts','utf8');
 
-test('Intro stays alive until the requested handoff and existing fade boundary, then disposes before Universe formation completes',()=>{
- const handoff=universeHomeSource.slice(universeHomeSource.indexOf('const beginHandoff='),universeHomeSource.indexOf('const startUniverse='));
- assert.ok(handoff.includes('if(!handoffState())return;setHandoff(true);handoffTimer=window.setTimeout('));
- assert.equal(handoff.slice(0,handoff.indexOf('handoffTimer=window.setTimeout(')).includes('opening?.dispose()'),false,'Intro must remain allocated until the existing fade timer finishes');
- assert.match(handoff,/if\(!handoffState\(\)\)return;opening\?\.setActive\(false\);setIntroVisible\(false\);opening\?\.dispose\(\);opening=undefined;introScene\.current=null;/);
+test('Intro remains mounted across startup Scene replacements and handoff waits for the latest rendered frame',()=>{
+ const introEffect=universeHomeSource.slice(universeHomeSource.indexOf('useLayoutEffect(()=>{\n  if(!introCanvas.current)'),universeHomeSource.indexOf(' },[]);',universeHomeSource.indexOf('useLayoutEffect(()=>{\n  if(!introCanvas.current)')));
+ assert.match(introEffect,/new UniverseIntroScene\(introCanvas\.current,\(\)=>beginHandoffRef\.current\(\),fail,intro\)/);
+ assert.match(introEffect,/opening\?\.dispose\(\);if\(introScene\.current===opening\)introScene\.current=null/);
+ const sceneEffect=universeHomeSource.slice(universeHomeSource.indexOf('useLayoutEffect(()=>{\n  if(!canvas.current)'),universeHomeSource.indexOf(' },[sceneRevision,requestSceneRebuild]);'));
+ assert.match(sceneEffect,/if\(!isCurrentSceneRevision\(generation,sceneGeneration\.current,disposed\)\|\|scene\.current!==instance\)return/);
+ assert.match(sceneEffect,/firstFrameGeneration\.current=generation;if\(handoffRequested\.current\)beginHandoffRef\.current\(\)/);
+ assert.match(universeHomeSource,/firstFrameGeneration\.current===sceneGeneration\.current/);
+ assert.match(universeHomeSource,/sceneGeneration\.current\+=1;firstFrameGeneration\.current=null/);
+ assert.match(universeSceneSource,/this\.renderer\.render\(this\.scene,this\.camera\);if\(!this\.firstFrame\)/);
+});
+
+test('handoff uses the unchanged 950ms full and 280ms quick fade, then disposes Intro before Universe completion',()=>{
+ const handoff=universeHomeSource.slice(universeHomeSource.indexOf('const beginHandoff=useCallback'),universeHomeSource.indexOf('beginHandoffRef.current=beginHandoff'));
+ assert.match(handoff,/setHandoff\(true\)/);
+ assert.match(handoff,/introScene\.current\?\.dispose\(\);introScene\.current=null/);
  assert.match(handoff,/intro==='full'\?950:280/);
  const fadeMs={full:950,quick:280};
  const sceneTimings={full:{baseline:7.8,duration:9.65},quick:{baseline:2.3,duration:2.3}};
@@ -165,41 +176,94 @@ test('Intro stays alive until the requested handoff and existing fade boundary, 
  assert.match(universeSceneSource,/this\.duration=this\.reduced\?\.8:introMode==='full'\?9\.65:2\.3;/);
  for(const mode of ['full','quick']){
   const timing=sceneTimings[mode],disposeAt=timing.baseline*.47+fadeMs[mode]/1000;
-  assert.ok(disposeAt<timing.duration,mode+' Intro cleanup must precede Universe formed/onReady in the existing normal-motion timeline');
+  assert.ok(disposeAt<timing.duration,mode+' Intro cleanup remains before Universe completion under existing timing');
  }
 });
 
 test('Universe final onReady only commits formed state and does not repeat Intro resource cleanup',()=>{
- const start=universeHomeSource.indexOf('()=>{hasFormed.current=true;');
- const end=universeHomeSource.indexOf('},()=>{universeFrameReady=true;',start);
+ const start=universeHomeSource.indexOf('startupElapsed.current=0;hasFormed.current=true;setFormed(true)');
+ const end=universeHomeSource.indexOf('},()=>{if(!isCurrentSceneRevision',start);
  assert.ok(start>=0&&end>start,'Universe onReady callback found');
  const onReady=universeHomeSource.slice(start,end+1);
- assert.match(onReady,/hasFormed\.current=true;setFormed\(true\);/);
+ assert.match(onReady,/startupElapsed\.current=0;hasFormed\.current=true;setFormed\(true\)/);
  assert.doesNotMatch(onReady,/opening|introScene\.current|\.dispose\(/);
 });
 
-test('Intro unmount cleanup remains in place and no-Intro startup does not create an IntroScene',()=>{
+test('Intro unmount cleanup remains separate from Scene replacement, with a no-Intro path',()=>{
  assert.match(universeHomeSource,/if\(intro!=='none'\)try\{opening=new UniverseIntroScene/);
  assert.match(universeHomeSource,/setHandoff\(intro==='none'\);setIntroVisible\(intro!=='none'\);/);
- assert.match(universeHomeSource,/return\(\)=>\{disposed=true;clearTimeout\(handoffTimer\);opening\?\.dispose\(\);instance\?\.dispose\(\);introScene\.current=null;scene\.current=null;\};/);
+ assert.match(universeHomeSource,/return\(\)=>\{introEffectDisposed\.current=true;if\(handoffTimer\.current!==null\)\{window\.clearTimeout\(handoffTimer\.current\);handoffTimer\.current=null;\}opening\?\.dispose\(\);if\(introScene\.current===opening\)introScene\.current=null;\};/);
+ const introCleanup=universeHomeSource.slice(universeHomeSource.indexOf('if(!introCanvas.current)'),universeHomeSource.indexOf(' },[]);',universeHomeSource.indexOf('if(!introCanvas.current)')));
+ assert.doesNotMatch(introCleanup,/scene\.current|instance\?\.dispose/);
+ const sceneCleanup=universeHomeSource.slice(universeHomeSource.indexOf('return()=>{disposed=true;if(!hasFormed.current'),universeHomeSource.indexOf(' },[sceneRevision,requestSceneRebuild]);'));
+ assert.match(sceneCleanup,/instance\?\.dispose\(\)/);
+});
+
+test('startup Scene replacements carry elapsed time into the new Scene without changing formation parameters',()=>{
+ assert.match(universeHomeSource,/startupElapsed\.current=carryStartupElapsed\(startupElapsed\.current,scene\.current\?\.snapshot\(\)\.elapsed\?\?0\)/);
+ assert.match(universeHomeSource,/initialElapsed=hasFormed\.current\?0:startupElapsed\.current/);
+ assert.match(universeSceneSource,/this\.clock=this\.completed\?0:Math\.max\(0,initialElapsed\)/);
+ assert.match(universeSceneSource,/this\.duration=this\.reduced\?\.8:introMode==='full'\?9\.65:2\.3/);
+ assert.match(universeSceneSource,/sampleCameraTransition\(f\.time,galaxyFlightDuration\(this\.reduced\),1\.6\)/);
 });
 
 test('Intro dispose is idempotent and releases its scheduled work, observers, listeners, and owned Three resources',()=>{
  assert.match(introSceneSource,/dispose\(\)\{if\(this\.disposed\)return;this\.disposed=true;/);
  for(const cleanup of [
-  'clearTimeout(this.emissionTimeout)',
-  'cancelAnimationFrame(this.frame)',
-  'this.observer.disconnect()',
-  "document.removeEventListener('visibilitychange',this.schedule)",
-  "document.removeEventListener('native-visibility',this.nativeHandler)",
-  "this.canvas.removeEventListener('webglcontextlost',this.contextLost)",
-  'this.geometries.forEach(g=>g.dispose())',
-  'this.materials.forEach(m=>m.dispose())',
-  '.material.dispose()',
-  'this.core.material.map?.dispose()',
-  'this.texture?.dispose()',
-  'this.nebula?.geometry.dispose()',
-  'this.nebula?.material.dispose()',
-  'this.renderer.dispose()',
+  'clearTimeout(this.emissionTimeout)','cancelAnimationFrame(this.frame)','this.observer.disconnect()',
+  "document.removeEventListener('visibilitychange',this.schedule)","document.removeEventListener('native-visibility',this.nativeHandler)",
+  "this.canvas.removeEventListener('webglcontextlost',this.contextLost)",'this.geometries.forEach(g=>g.dispose())',
+  'this.materials.forEach(m=>m.dispose())','.material.dispose()','this.core.material.map?.dispose()','this.texture?.dispose()',
+  'this.nebula?.geometry.dispose()','this.nebula?.material.dispose()','this.renderer.dispose()',
  ])assert.ok(introSceneSource.includes(cleanup),cleanup+' cleanup retained');
+});
+
+test('startup structural changes rebuild immediately, while formed Scenes keep the existing safe-point policy',()=>{
+ assert.equal(startupSceneRebuildAction(true,false,'none',false),'rebuild');
+ assert.equal(startupSceneRebuildAction(true,false,'approach',false),'rebuild');
+ assert.equal(startupSceneRebuildAction(false,false,'none',false),'unchanged');
+ assert.equal(startupSceneRebuildAction(true,true,'approach',false),'defer');
+ assert.equal(startupSceneRebuildAction(true,true,'none',true),'rebuild');
+ assert.equal(startupSceneRebuildAction(false,true,'none',true),'unchanged');
+});
+
+test('only the current Scene generation can satisfy the Intro first-frame handoff',()=>{
+ let currentGeneration=1,readyGeneration=null;
+ const onFirstFrame=(generation,disposed=false)=>{if(isCurrentSceneRevision(generation,currentGeneration,disposed))readyGeneration=generation;};
+ onFirstFrame(1);assert.equal(readyGeneration,1);
+ currentGeneration=2;readyGeneration=null;
+ onFirstFrame(1);assert.equal(readyGeneration,null,'stale Scene frame is ignored');
+ onFirstFrame(2);assert.equal(readyGeneration,2,'latest Scene frame is accepted');
+ onFirstFrame(2,true);assert.equal(readyGeneration,2,'disposed Scene frame is ignored');
+ assert.equal(isIntroHandoffReady({requested:true,universeFrameReady:readyGeneration===currentGeneration,disposed:false,introMode:'full'}),true);
+});
+
+test('startup Scene replacement carries elapsed formation time forward without resetting its progress',()=>{
+ assert.equal(carryStartupElapsed(0,3.25),3.25);
+ assert.equal(carryStartupElapsed(3.25,2.1),3.25,'replacement cannot move formation clock backwards');
+ assert.equal(carryStartupElapsed(3.25,4.6),4.6);
+});
+
+test('UniverseHome rebuilds startup inputs immediately and binds first-frame readiness to the latest Scene',()=>{
+ const home=universeHomeSource;
+ assert.match(home,/startupSceneRebuildAction\(changed,hasFormed\.current,sceneStage\.current,atUniverseHome\)/);
+ assert.match(home,/appliedSceneInputs\.current=next;setSceneRevision\(value=>value\+1\)/);
+ assert.match(home,/firstFrameGeneration\.current=null;appliedSceneInputs\.current=next;setSceneRevision/);
+ assert.equal((home.match(/if\(!isCurrentSceneRevision\(generation,sceneGeneration\.current,disposed\)\|\|scene\.current!==instance\)return/g)||[]).length,2,'both ready and first-frame callbacks reject stale scenes');
+ assert.match(home,/firstFrameGeneration\.current===sceneGeneration\.current/);
+ assert.match(home,/inputs=currentSceneInputs\.current;appliedSceneInputs\.current=inputs/);
+ assert.match(home,/initialElapsed=hasFormed\.current\?0:startupElapsed\.current/);
+ assert.match(universeSceneSource,/initialElapsed=0\)\{/);
+ assert.match(universeSceneSource,/this\.clock=this\.completed\?0:Math\.max\(0,initialElapsed\)/);
+});
+
+test('formation completion does not replace already-applied startup inputs, and formed rebuilds remain safe-point gated',()=>{
+ assert.equal(startupSceneRebuildAction(false,false,'none',true),'unchanged');
+ assert.equal(startupSceneRebuildAction(false,true,'approach',false),'unchanged');
+ assert.equal(startupSceneRebuildAction(true,true,'approach',false),'defer');
+ assert.equal(startupSceneRebuildAction(true,true,'none',true),'rebuild');
+ const completion=universeSceneSource.slice(universeSceneSource.indexOf('if(this.clock>=this.duration&&this.ready)'),universeSceneSource.indexOf('}else if(this.focusFlight)',universeSceneSource.indexOf('if(this.clock>=this.duration&&this.ready)')));
+ assert.match(completion,/this\.completed=true;[\s\S]*?this\.onReady\(\);/);
+ assert.doesNotMatch(completion,/notifySafeRebuildPoint/,'initial completion does not run a deferred rebuild safe point');
+ assert.match(universeHomeSource,/if\(!isCurrentSceneRevision\(generation,sceneGeneration\.current,disposed\)\|\|scene\.current!==instance\)return;startupElapsed\.current=0;hasFormed\.current=true;setFormed\(true\)/);
 });
