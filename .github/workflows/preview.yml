@@ -3,7 +3,7 @@ name: Mobile Preview
 on:
   push:
     branches:
-      - wip/universe-6-1a
+      - wip/**
 
 permissions:
   contents: read
