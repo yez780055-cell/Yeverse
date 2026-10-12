@@ -1,11 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
+globalThis.window = {location:{search:'?perf=1'},devicePixelRatio:2};
+const webglDiagnostics = await import('../.test-runtime/webgl-diagnostics/webglDiagnostics.js');
+const robustnessDiagnostics = await import('../.test-runtime/webgl-diagnostics/robustnessDiagnostics.js');
+const {
  createWebGLDiagnosticsRegistry,
  attachRendererContextDiagnostics,
+ createRendererDiagnosticHandle,
+ getWebGLDiagnosticsSnapshot,
  isWebGLDiagnosticsEnabledFromSearch,
  readWebGLResourceCounters,
-} from '../.test-runtime/webgl-diagnostics/webglDiagnostics.js';
+} = webglDiagnostics;
+const {getRobustnessDiagnosticsSnapshot} = robustnessDiagnostics;
 
 const resources=(geometries,textures,programs,calls=0,triangles=0,points=0,lines=0)=>({geometries,textures,programs,calls,triangles,points,lines});
 const input=(kind,backend='webgl',overrides={})=>({
@@ -17,6 +23,15 @@ const input=(kind,backend='webgl',overrides={})=>({
 function eventTarget(){
  const listeners=new Map();
  return {addEventListener(type,listener){const group=listeners.get(type)||new Set();group.add(listener);listeners.set(type,group);},removeEventListener(type,listener){listeners.get(type)?.delete(listener);},emit(type){for(const listener of listeners.get(type)||[])listener(new Event(type));},listenerCount(){return [...listeners.values()].reduce((n,group)=>n+group.size,0);}};
+}
+function diagnosticCanvas(){
+ return Object.assign(eventTarget(),{width:800,height:600,clientWidth:400,clientHeight:300});
+}
+function diagnosticRenderer(getPixelRatio=()=>2){
+ return {getPixelRatio,info:{memory:{geometries:3,textures:4},programs:{length:2},render:{calls:0,triangles:0,points:0,lines:0}}};
+}
+function currentRobustnessSnapshot(){
+ return getRobustnessDiagnosticsSnapshot(getWebGLDiagnosticsSnapshot());
 }
 
 test('register adds one alive renderer and unregister removes it',()=>{
@@ -133,9 +148,8 @@ test('snapshot formatter is stable for a fixed snapshot',()=>{
  assert.equal(registry.formatSnapshot(snapshot).includes('CPU render duration is performance.now() around renderer.render(), not GPU frame time.'),true);
 });
 
-test('disabled singleton snapshot starts empty in a non-browser runtime',async()=>{
- const module=await import('../.test-runtime/webgl-diagnostics/webglDiagnostics.js');
- assert.equal(module.getWebGLDiagnosticsSnapshot().aliveRendererCount,0);
+test('the ?perf=1 diagnostics singleton starts with no renderer entries',()=>{
+ assert.equal(getWebGLDiagnosticsSnapshot().aliveRendererCount,0);
 });
 
 test('context lifecycle counters distinguish intentional releases from unexpected losses',()=>{
@@ -176,6 +190,71 @@ test('software renderer attaches no WebGL context event listeners',()=>{
  const registry=createWebGLDiagnosticsRegistry(true),id=registry.register(input('intro','software')),canvas=eventTarget();
  attachRendererContextDiagnostics(canvas,registry,id,'software');
  assert.equal(canvas.listenerCount(),0);
+});
+test('createRendererDiagnosticHandle wires context events once and removes listeners on dispose',()=>{
+ const canvas=diagnosticCanvas(),beforeWebGL=getWebGLDiagnosticsSnapshot(),beforeRobustness=currentRobustnessSnapshot();
+ const beforeIds=new Set(beforeWebGL.renderers.map(renderer=>renderer.id));
+ const handle=createRendererDiagnosticHandle({kind:'universe',backend:'webgl',canvas,renderer:diagnosticRenderer(),initialState:{active:true,visible:true,rafMode:'continuous',rafPending:true}});
+ assert.ok(handle,'?perf=1 enables the real renderer diagnostic handle');
+ assert.equal(canvas.listenerCount(),2);
+ const renderer=getWebGLDiagnosticsSnapshot().renderers.find(item=>!beforeIds.has(item.id));
+ assert.ok(renderer);
+ canvas.emit('webglcontextlost');
+ canvas.emit('webglcontextrestored');
+ const afterEvents=getWebGLDiagnosticsSnapshot(),afterRobustness=currentRobustnessSnapshot();
+ const afterRenderer=afterEvents.renderers.find(item=>item.id===renderer.id);
+ assert.equal(afterRenderer.contextLostCount,1);
+ assert.equal(afterRenderer.contextRestoredCount,1);
+ assert.equal(afterEvents.unexpectedContextLossCount,beforeWebGL.unexpectedContextLossCount+1);
+ assert.equal(afterRobustness.eventCounts['context-lost'],beforeRobustness.eventCounts['context-lost']+1);
+ assert.equal(afterRobustness.eventCounts['context-restored'],beforeRobustness.eventCounts['context-restored']+1);
+ handle.dispose();
+ assert.equal(canvas.listenerCount(),0);
+ canvas.emit('webglcontextlost');
+ canvas.emit('webglcontextrestored');
+ const disposedWebGL=getWebGLDiagnosticsSnapshot(),disposedRobustness=currentRobustnessSnapshot();
+ assert.equal(disposedWebGL.renderers.some(item=>item.id===renderer.id),false);
+ assert.equal(disposedWebGL.unexpectedContextLossCount,afterEvents.unexpectedContextLossCount);
+ assert.equal(disposedRobustness.eventCounts['context-lost'],afterRobustness.eventCounts['context-lost']);
+ assert.equal(disposedRobustness.eventCounts['context-restored'],afterRobustness.eventCounts['context-restored']);
+});
+
+test('createRendererDiagnosticHandle does not attach WebGL listeners for software',()=>{
+ const canvas=diagnosticCanvas(),before=currentRobustnessSnapshot();
+ const handle=createRendererDiagnosticHandle({kind:'intro',backend:'software',canvas,initialState:{active:true,visible:true,rafMode:'continuous',rafPending:true}});
+ assert.ok(handle);
+ assert.equal(canvas.listenerCount(),0);
+ canvas.emit('webglcontextlost');
+ canvas.emit('webglcontextrestored');
+ assert.equal(currentRobustnessSnapshot().eventCounts['context-lost'],before.eventCounts['context-lost']);
+ assert.equal(currentRobustnessSnapshot().eventCounts['context-restored'],before.eventCounts['context-restored']);
+ handle.dispose();
+});
+
+test('createRendererDiagnosticHandle records every changed canvas metric and deduplicates identical refreshes',()=>{
+ const canvas=diagnosticCanvas(),before=currentRobustnessSnapshot();
+ let dpr=2;
+ const handle=createRendererDiagnosticHandle({kind:'asset-viewer',backend:'webgl',canvas,renderer:diagnosticRenderer(()=>dpr),initialState:{active:true,visible:true,rafMode:'demand',rafPending:false}});
+ assert.ok(handle);
+ const rendererId=getWebGLDiagnosticsSnapshot().renderers.at(-1).id;
+ const count=()=>currentRobustnessSnapshot().eventCounts['canvas-resize']-before.eventCounts['canvas-resize'];
+ canvas.width=801;handle.refresh();assert.equal(count(),1);
+ canvas.height=601;handle.refresh();assert.equal(count(),2);
+ canvas.clientWidth=401;handle.refresh();assert.equal(count(),3);
+ canvas.clientHeight=301;handle.refresh();assert.equal(count(),4);
+ dpr=3;handle.refresh();assert.equal(count(),5);
+ const events=currentRobustnessSnapshot().events.filter(event=>event.type==='canvas-resize'&&event.rendererId===rendererId);
+ assert.deepEqual(events.map(event=>[event.width,event.height,event.cssWidth,event.cssHeight,event.dpr]),[
+  [801,600,400,300,2],
+  [801,601,400,300,2],
+  [801,601,401,300,2],
+  [801,601,401,301,2],
+  [801,601,401,301,3],
+ ]);
+ handle.refresh();handle.refresh();
+ assert.equal(count(),5);
+ assert.deepEqual(getWebGLDiagnosticsSnapshot().renderers.find(item=>item.id===rendererId).canvas,{width:801,height:601,cssWidth:401,cssHeight:301,dpr:3});
+ handle.dispose();
 });
 
 test('repeated renderer mount and unmount returns the registry to baseline',()=>{
